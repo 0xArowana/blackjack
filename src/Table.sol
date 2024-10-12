@@ -2,12 +2,34 @@
 pragma solidity ^0.8.18;
 
 import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { Pit } from "./Pit.sol";
+import { Game } from "./Game.sol";
 
 contract Table is OwnableUpgradeable {
-    address[5] public spots;
+    error Table__NotGame();
+
+    address[5] public s_players;
+    Game s_currentGame;
+
+    modifier onlyGame {
+        if (msg.sender == address(s_currentGame)) {
+            revert Table__NotGame();
+        }
+        _;
+    }
 
     function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner {
+        int8[10] memory cards;
         
+        for(uint256 i = 0; i < 10; i++) {
+            cards[i] = int8(int256(_randomWords[i] % 52));
+        }
+
+        s_currentGame.cardsDrawn(cards);
+    }
+
+    function drawCards() onlyGame external {
+        Pit(owner()).requestRandomWords();
     }
 
     // mapping (address => uint256) public bets

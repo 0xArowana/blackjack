@@ -1,12 +1,47 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.18;
 
-contract Game {
+import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { Table } from "./Table.sol";
 
-    constructor() {
-        
+contract Game is OwnableUpgradeable {
+    mapping (int8 => PlayerState) internal s_players;
+    int8[] internal s_playersDrawingCards;
+    int8 internal s_cardsPerPlayerToDraw;
+
+    struct PlayerState {
+        int8[] hand;
     }
 
+    constructor(int8[] memory _players) {
+        for(uint256 i = 0; i < _players.length; i++) {
+            int8 playerIndex = _players[i];
+
+            // TODO: calculate gas costs for various initial array sizes
+            s_players[playerIndex] = PlayerState(new int8[](10));
+        }
+    }
+
+    function drawCards(int8[] memory _players, int8 _cardsPerPlayer) internal {
+        s_playersDrawingCards = _players;
+        s_cardsPerPlayerToDraw = _cardsPerPlayer;
+
+        // Table(owner()).drawCards();
+    }
+
+    function cardsDrawn(int8[10] memory _cards) external onlyOwner {
+        uint256 cardsPerPlayer = uint256(uint8(s_cardsPerPlayerToDraw));
+
+        for (uint256 i = 0; i < s_playersDrawingCards.length; i++) {
+            int8 playerSpot = s_playersDrawingCards[i];
+
+            for (uint256 j = 0; j < cardsPerPlayer; j++) {
+                uint256 cardIndex = (i * cardsPerPlayer) + j;
+                int8 card = _cards[cardIndex];
+                s_players[playerSpot].hand.push(card);
+            }
+        }
+    }
 
 
     // mapping (address => uint256 _status) public players
