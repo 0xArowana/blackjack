@@ -7,8 +7,10 @@ import { Game } from "./Game.sol";
 
 contract Table is OwnableUpgradeable {
     error Table__NotGame();
+    error Table__SpotOccupied();
+    error Table__PlayerAlreadySitting();
 
-    address[5] public s_players;
+    address[7] public s_players;
     Game s_currentGame;
 
     modifier onlyGame {
@@ -16,6 +18,32 @@ contract Table is OwnableUpgradeable {
             revert Table__NotGame();
         }
         _;
+    }
+
+    function sit(uint256 _spot) external {
+        for(uint8 i = 0; i < 7; i++) {
+            if (s_players[i] == msg.sender) {
+                revert Table__PlayerAlreadySitting();
+            }
+        }
+
+        if (s_players[_spot] != address(0)) {
+            revert Table__SpotOccupied();
+        }
+
+        s_players[_spot] = msg.sender;
+    }
+
+    function newGame() internal {
+        int8[] memory players;
+        
+        for(int8 i = 0; i < 7; i++) {
+            if (s_players[uint8(i)] != address(0)) {
+                players[players.length] = i;
+            }
+        }
+
+        s_currentGame = new Game(players);
     }
 
     function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner {
@@ -28,7 +56,7 @@ contract Table is OwnableUpgradeable {
         s_currentGame.cardsDrawn(cards);
     }
 
-    function drawCards() onlyGame external {
+    function drawCards() onlyGame external virtual {
         Pit(owner()).requestRandomWords();
     }
 

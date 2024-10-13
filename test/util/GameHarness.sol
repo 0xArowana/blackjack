@@ -18,7 +18,7 @@ contract GameHarness is Game {
         return s_cardsPerPlayerToDraw;
     }
 
-    function doDrawCards(int8[] memory _players, int8 _cardsPerPlayer) external {
+    function callDrawCards(int8[] memory _players, int8 _cardsPerPlayer) external {
         drawCards(_players, _cardsPerPlayer);
     }
 }

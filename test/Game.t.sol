@@ -1,19 +1,24 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import {Test, console} from "forge-std/Test.sol";
-import {GameHarness} from "./harness/GameHarness.sol";
+import {Test} from "forge-std/Test.sol";
+import {GameHarness} from "./util/GameHarness.sol";
+import {TableMock} from "./util/TableMock.sol";
 
 contract GameTest is Test {
-    GameHarness public game;
+    GameHarness game;
+    TableMock table;
 
     function setUp() public {
+        table = new TableMock();
+
         int8[] memory spots = new int8[](4);
         spots[0] = 0;
         spots[1] = 1;
         spots[2] = 4;
         spots[3] = 6;
 
+        vm.prank(address(table));
         game = new GameHarness(spots);
     }
 
@@ -22,15 +27,16 @@ contract GameTest is Test {
         playersArg[0] = 0;
         playersArg[1] = 4;
 
-        game.doDrawCards(playersArg, 3);
+        game.callDrawCards(playersArg, 3);
 
         int8[] memory playersStored = game.getPlayersDrawingCards();
         assertEq(playersStored.length, 2);
         assertEq(playersStored[0], 0);
         assertEq(playersStored[1], 4);
 
-        // TODO: Create mock Table and check drawCards was called
+        assertEq(table.drawCardsCallCount(), 1);
 
+        vm.prank(address(table));
         game.cardsDrawn([int8(8),44,21,16,36,19,24,11,15,25]);
 
         int8[] memory hand1 = game.getPlayerState(0).hand;
