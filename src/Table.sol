@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.18;
 
-import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Pit } from "./Pit.sol";
 import { Game } from "./Game.sol";
 
-contract Table is OwnableUpgradeable {
+contract Table is Ownable {
     error Table__NotGame();
     error Table__SpotOccupied();
     error Table__PlayerAlreadySitting();
@@ -20,7 +20,9 @@ contract Table is OwnableUpgradeable {
         _;
     }
 
-    function sit(uint256 _spot) external {
+    constructor() Ownable(msg.sender) {}
+
+    function sit(uint8 _spot) external {
         for(uint8 i = 0; i < 7; i++) {
             if (s_players[i] == msg.sender) {
                 revert Table__PlayerAlreadySitting();
@@ -35,9 +37,9 @@ contract Table is OwnableUpgradeable {
     }
 
     function newGame() internal {
-        int8[] memory players;
+        uint8[] memory players;
         
-        for(int8 i = 0; i < 7; i++) {
+        for(uint8 i = 0; i < 7; i++) {
             if (s_players[uint8(i)] != address(0)) {
                 players[players.length] = i;
             }
@@ -47,16 +49,16 @@ contract Table is OwnableUpgradeable {
     }
 
     function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner {
-        int8[10] memory cards;
+        uint8[50] memory cards;
         
         for(uint256 i = 0; i < 10; i++) {
-            cards[i] = int8(int256(_randomWords[i] % 52));
+            cards[i] = uint8(_randomWords[i] % 52) + 1;
         }
 
         s_currentGame.cardsDrawn(cards);
     }
 
-    function drawCards() onlyGame external virtual {
+    function drawCards() onlyGame external {
         Pit(owner()).requestRandomWords();
     }
 

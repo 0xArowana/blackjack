@@ -5,56 +5,58 @@ import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Table } from "./Table.sol";
 
 contract Game is Ownable {
-    mapping (int8 => PlayerState) internal s_players;
-    int8[] internal s_playersDrawingCards;
-    int8 internal s_cardsPerPlayerToDraw;
+    mapping (uint8 => PlayerState) internal s_players;
+    GameStatus internal s_status;
+    uint8 internal s_currentPlayerTurn;
+    uint8[] internal s_playersDrawingCards;
+    uint8 internal s_cardsPerPlayerToDraw;
+    
+    enum GameStatus {
+        Bet,
+        PlayerTurn,
+        DealerTurn,
+        Complete
+    }
 
     struct PlayerState {
-        int8[] hand;
+        uint8[] hand;
+        uint256 bet;
     }
 
-    constructor(int8[] memory _players) Ownable(msg.sender) {
+    constructor(uint8[] memory _players) Ownable(msg.sender) {
         for(uint256 i = 0; i < _players.length; i++) {
-            int8 playerIndex = _players[i];
+            uint8 playerIndex = _players[i];
 
-            s_players[playerIndex] = PlayerState(new int8[](0));
+            s_players[playerIndex] = PlayerState(new uint8[](0), 0);
         }
+
+        s_status = GameStatus.Bet;
     }
 
-    function drawCards(int8[] memory _players, int8 _cardsPerPlayer) internal {
+    function drawCards(uint8[] memory _players, uint8 _cardsPerPlayer) internal {
         s_playersDrawingCards = _players;
         s_cardsPerPlayerToDraw = _cardsPerPlayer;
 
         Table(owner()).drawCards();
     }
 
-    function cardsDrawn(int8[10] memory _cards) external onlyOwner {
+    function cardsDrawn(uint8[50] memory _cards) external onlyOwner {
         uint256 cardsPerPlayer = uint256(uint8(s_cardsPerPlayerToDraw));
 
         for (uint256 i = 0; i < s_playersDrawingCards.length; i++) {
-            int8 playerSpot = s_playersDrawingCards[i];
+            uint8 playerSpot = s_playersDrawingCards[i];
 
             for (uint256 j = 0; j < cardsPerPlayer; j++) {
                 uint256 cardIndex = (i * cardsPerPlayer) + j;
-                int8 card = _cards[cardIndex];
+                uint8 card = _cards[cardIndex];
                 s_players[playerSpot].hand.push(card);
             }
         }
     }
 
-
-    // mapping (address => uint256 _status) public players
-        // status 
-
-    // mapping (address => uint256) public bets
-    
-    // uint[] deck immutable;
-        // Obfuscate deck data
-        // Created and shuffled in constructor (Chainlink not needed?)
-
-    // mapping (address => uint256) public hands 
-        // Need to obfuscate hand data?
-        // Store hand totals to save gas?
+    function updateBet(uint8 _player, uint256 _amount) external onlyOwner {
+        
+    }
 
     // address currentTurn
         // dealer address is "this"
