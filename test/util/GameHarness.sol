@@ -4,13 +4,13 @@ pragma solidity ^0.8.18;
 import {Game} from "../../src/Game.sol";
 
 contract GameHarness is Game {
-    constructor(uint8[] memory _players) Game(_players) {}
+    constructor(address[] memory _playerAddresses, uint256 _minBet, uint256 _maxBet) Game(_playerAddresses, _minBet, _maxBet) {}
     
-    function getPlayerState(uint8 _spot) external view returns (Game.PlayerState memory) {
-        return s_players[_spot];
+    function getPlayerState(address _playerAddress) external view returns (Game.PlayerState memory) {
+        return s_playerStates[_playerAddress];
     } 
 
-    function getPlayersDrawingCards() external view returns (uint8[] memory) {
+    function getPlayersDrawingCards() external view returns (address[] memory) {
         return s_playersDrawingCards;
     }
 
@@ -18,7 +18,7 @@ contract GameHarness is Game {
         return s_cardsPerPlayerToDraw;
     }
 
-    function callDrawCards(uint8[] memory _players, uint8 _cardsPerPlayer) external {
-        drawCards(_players, _cardsPerPlayer);
+    function callDrawCards(address[] memory _playerAddresses, uint8 _cardsPerPlayer) external {
+        drawCards(_playerAddresses, _cardsPerPlayer);
     }
 }

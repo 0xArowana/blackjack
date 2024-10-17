@@ -7,11 +7,14 @@ import { Game } from "./Game.sol";
 
 contract Table is Ownable {
     error Table__NotGame();
-    error Table__SpotOccupied();
-    error Table__PlayerAlreadySitting();
+    error Table__InvalidSeatNumber();
+    error Table__SeatOccupied();
 
-    address[7] public s_players;
+    mapping(address => uint8) public s_playerToSeatNumber;
+    mapping(uint8 => address) public s_seatNumberToPlayer;
     Game s_currentGame;
+    uint256 internal s_minBet;
+    uint256 internal s_maxBet;
 
     modifier onlyGame {
         if (msg.sender == address(s_currentGame)) {
@@ -20,32 +23,44 @@ contract Table is Ownable {
         _;
     }
 
-    constructor() Ownable(msg.sender) {}
+    constructor(uint256 _minBet, uint256 _maxBet) Ownable(msg.sender) {
+        s_minBet = _minBet;
+        s_maxBet = _maxBet;
+    }
 
-    function sit(uint8 _spot) external {
-        for(uint8 i = 0; i < 7; i++) {
-            if (s_players[i] == msg.sender) {
-                revert Table__PlayerAlreadySitting();
-            }
+    function sit(uint8 _seatNumber) external {
+        if (_seatNumber > 7 || _seatNumber < 1) {
+            revert Table__InvalidSeatNumber();
         }
 
-        if (s_players[_spot] != address(0)) {
-            revert Table__SpotOccupied();
+        address occupant = s_seatNumberToPlayer[_seatNumber];
+        
+        if (occupant != msg.sender && occupant != address(0)) {
+            revert Table__SeatOccupied();
         }
 
-        s_players[_spot] = msg.sender;
+        s_playerToSeatNumber[msg.sender] = _seatNumber;
+        s_seatNumberToPlayer[_seatNumber] = msg.sender;
     }
 
     function newGame() internal {
-        uint8[] memory players;
+        address[] memory players;
         
-        for(uint8 i = 0; i < 7; i++) {
-            if (s_players[uint8(i)] != address(0)) {
-                players[players.length] = i;
+        for(uint8 i = 1; i < 8; i++) {
+            if (s_seatNumberToPlayer[i] != address(0)) {
+                players[players.length] = s_seatNumberToPlayer[i];
             }
         }
 
-        s_currentGame = new Game(players);
+        s_currentGame = new Game(players, s_minBet, s_maxBet);
+    }
+
+    function setMinBet(uint256 _amount) external onlyOwner {
+        s_minBet = _amount;
+    }
+
+    function setMaxBet(uint256 _amount) external onlyOwner {
+        s_maxBet = _amount;
     }
 
     function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner {
