@@ -1,26 +1,38 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.18;
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
-import { Table } from "./Table.sol";
-import {console} from "forge-std/console.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Table} from "./Table.sol";
 
 contract Game is Ownable {
-    error Game__NotBetStatus();
-    error Game__BetLessThanMin();
-    error Game__BetGreaterThanMax();
     error Game__BetAlreadyPlaced();
+    error Game__BetGreaterThanMax();
+    error Game__BetLessThanMin();
+    error Game__NoCards();
+    error Game__NotBetStatus();
+    error Game__NotCurrentPlayer();
+    error Game__NotPlayerTurnStatus();
 
     mapping(address => PlayerState) internal s_playerStates;
     address[] s_playerAddresses;
     GameStatus internal s_status;
     uint8[] internal s_dealerHand;
-    uint8 internal s_currentPlayerTurn;
-    address[] internal s_playersDrawingCards;
-    uint8 internal s_cardsPerPlayerToDraw;
+    address internal s_currentPlayerAddress;
+    mapping(uint8 => uint8) internal s_cardsDrawn;
 
     uint256 internal immutable i_minBet;
     uint256 internal immutable i_maxBet;
+
+    modifier onlyCurrentPlayer {
+        if (s_status != GameStatus.PlayerTurn) {
+            revert Game__NotPlayerTurnStatus();
+        }
+
+        if (msg.sender == address(s_currentPlayerAddress)) {
+            revert Game__NotCurrentPlayer();
+        }
+        _;
+    }
 
     enum GameStatus {
         Bet,
@@ -47,25 +59,30 @@ contract Game is Ownable {
         i_maxBet = _maxBet;
     }
 
-    function drawCards(address[] memory _playerAddresses, uint8 _cardsPerPlayer) internal {
-        s_playersDrawingCards = _playerAddresses;
-        s_cardsPerPlayerToDraw = _cardsPerPlayer;
+    function drawCard() internal returns (uint8) {
+        uint8 card = Table(owner()).drawCard();
 
-        Table(owner()).drawCards();
+        // If card already drawn 
+        if (s_cardsDrawn[card] >= 5) {
+            return drawCard();
+        }
+
+        s_cardsDrawn[card]++;
+
+        return card;
     }
 
-    function cardsDrawn(uint8[50] memory _cards) external onlyOwner {
-        uint256 cardsPerPlayer = uint256(uint8(s_cardsPerPlayerToDraw));
+    function initialDeal() internal {
+        for (uint8 i = 0; i < s_playerAddresses.length; i++) {
+            address playerAddress = s_playerAddresses[i];
 
-        for (uint8 i = 0; i < s_playersDrawingCards.length; i++) {
-            address playerAddress = s_playersDrawingCards[i];
-
-            for (uint256 j = 0; j < cardsPerPlayer; j++) {
-                uint256 cardIndex = (i * cardsPerPlayer) + j;
-                uint8 card = _cards[cardIndex];
+            for (uint256 j = 0; j < 2; j++) {
+                uint8 card = drawCard();
                 s_playerStates[playerAddress].hand.push(card);
             }
         }
+
+        s_dealerHand.push(drawCard());
     }
 
     function placeBet(uint256 _amount) external payable {
@@ -92,8 +109,17 @@ contract Game is Ownable {
             if (s_playerStates[playerAddress].bet == 0) return;
         }
 
+        initialDeal();
         s_status = GameStatus.PlayerTurn;
-        drawCards(s_playerAddresses, 2);
+    }
+
+    function hit() onlyCurrentPlayer external {
+        uint8 card = drawCard();
+
+        // If card drawn is ace...
+        if (card < 4) {
+
+        } 
     }
 
     // address currentTurn

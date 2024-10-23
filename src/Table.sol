@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.18;
 
-import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { Pit } from "./Pit.sol";
 import { Game } from "./Game.sol";
 
-contract Table is Ownable {
+contract Table is OwnableUpgradeable {
     error Table__NotGame();
     error Table__InvalidSeatNumber();
     error Table__SeatOccupied();
+    error Table__NoCards();
 
     mapping(address => uint8) public s_playerToSeatNumber;
     mapping(uint8 => address) public s_seatNumberToPlayer;
+    uint256[] internal s_randomWords;
     Game s_currentGame;
     uint256 internal s_minBet;
     uint256 internal s_maxBet;
@@ -23,9 +25,13 @@ contract Table is Ownable {
         _;
     }
 
-    constructor(uint256 _minBet, uint256 _maxBet) Ownable(msg.sender) {
+    function initialize(uint256 _minBet, uint256 _maxBet) public initializer {
+        __Ownable_init(msg.sender);
+
         s_minBet = _minBet;
         s_maxBet = _maxBet;
+
+        refreshRandomWords();
     }
 
     function sit(uint8 _seatNumber) external {
@@ -44,15 +50,15 @@ contract Table is Ownable {
     }
 
     function newGame() internal {
-        address[] memory players;
+        address[] memory playerAddresses;
         
         for(uint8 i = 1; i < 8; i++) {
             if (s_seatNumberToPlayer[i] != address(0)) {
-                players[players.length] = s_seatNumberToPlayer[i];
+                playerAddresses[playerAddresses.length] = s_seatNumberToPlayer[i];
             }
         }
 
-        s_currentGame = new Game(players, s_minBet, s_maxBet);
+        s_currentGame = new Game(playerAddresses, s_minBet, s_maxBet);
     }
 
     function setMinBet(uint256 _amount) external onlyOwner {
@@ -63,18 +69,27 @@ contract Table is Ownable {
         s_maxBet = _amount;
     }
 
-    function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner {
-        uint8[50] memory cards;
-        
-        for(uint256 i = 0; i < 10; i++) {
-            cards[i] = uint8(_randomWords[i] % 52) + 1;
-        }
-
-        s_currentGame.cardsDrawn(cards);
+    function setRandomWords(uint256[] calldata _randomWords) external onlyOwner {
+        s_randomWords = _randomWords;
     }
 
-    function drawCards() onlyGame external {
+    function refreshRandomWords() internal {
         Pit(owner()).requestRandomWords();
+    }
+    function drawCard() onlyGame external returns (uint8) {
+        if (s_randomWords.length == 0) {
+            revert Table__NoCards();
+        }
+
+        uint8 card = uint8(s_randomWords[s_randomWords.length - 1] % 52);
+
+        s_randomWords.pop();
+
+        if (s_randomWords.length < 50) {
+            refreshRandomWords();
+        }
+
+        return card;
     }
 
     // mapping (address => uint256) public bets

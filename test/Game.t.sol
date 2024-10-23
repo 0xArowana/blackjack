@@ -32,7 +32,7 @@ contract GameTest is Test {
         playerAddresses[0] = player1;
         playerAddresses[1] = player3;
 
-        game.callDrawCards(playerAddresses, 3);
+        game.callFetchCards(playerAddresses, 3);
 
         address[] memory playersStored = game.getPlayersDrawingCards();
         assertEq(playersStored.length, 2);
