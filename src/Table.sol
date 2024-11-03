@@ -40,7 +40,6 @@ contract Table is Initializable, OwnableUpgradeable {
     GameStatus internal s_gameStatus;
     uint8[] internal s_dealerHand;
     address internal s_currentPlayerAddress;
-    mapping(uint8 => uint8) internal s_cardsDrawn;
 
     enum GameStatus {
         Inactive,
@@ -168,11 +167,11 @@ contract Table is Initializable, OwnableUpgradeable {
             refreshRandomWords();
         }
 
-        if (s_cardsDrawn[card] >= 5) {
-            return drawCard();
-        }
+        // if (s_cardsDrawn[card] >= 5) {
+        //     return drawCard();
+        // }
 
-        s_cardsDrawn[card]++;
+        // s_cardsDrawn[card]++;
 
         return card;
     }
@@ -226,6 +225,8 @@ contract Table is Initializable, OwnableUpgradeable {
 
         } 
     }
+
+    // TODO: Prohibit more than 6 of same card drawn per game?
 
 
     // mapping (address => uint256) public bets
