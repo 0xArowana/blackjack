@@ -201,7 +201,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         Currency currency = Table(_table).s_currency();
         uint256 availableBalance = getAvailableBalance(msg.sender, currency);
 
-        if (_amount < availableBalance) {
+        if (_amount > availableBalance) {
             revert Pit__InsufficientBalance();
         }
 
