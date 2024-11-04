@@ -11,13 +11,15 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerBaseV2Upgradeable {
+    error Pit__InsufficientBalance();
+    error Pit__NotManager();
     error Pit__NotTable();
     error Pit__VrfRequestNotFound();
     error Pit__InvalidMaxBet();
     error Pit__InvalidMaxPlayers();
 
     // Managers
-    mapping(address => uint256) public s_managerToBalance;
+    mapping(address => uint256) public s_managerToEthBalance;
 
     address private s_usdc;
     uint256 private s_minAvailableEth;
@@ -33,7 +35,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     // Tables
     address s_tableImplementation;
     mapping(address => TableState) public s_tableToState;
-    mapping(address => address[]) public s_managerToTables;
+    mapping(address => Table[]) public s_managerToTables;
 
     enum Currency {
         ETH,
@@ -51,6 +53,13 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     modifier onlyTable {
         if (!s_tableToState[msg.sender].isActive) {
             revert Pit__NotTable();
+        }
+        _;
+    }
+
+    modifier onlyManager(address _table) {
+        if (Table(_table).s_manager() != msg.sender) {
+            revert Pit__NotManager();
         }
         _;
     }
@@ -111,12 +120,41 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         table.setRandomWords(_randomWords);
     }
 
-    function getAvailableBalance(address _manager, Currency _currency) private view returns(uint256) {
+    function getBalance(address _manager, Currency _currency) private view returns(uint256) {
         if (_currency == Currency.USDC) {
-
-        } else {
-            
+            return 0;
         }
+
+        return s_managerToEthBalance[_manager];
+    }
+
+    function getAvailableBalance(address _manager, Currency _currency) private view returns(uint256) {
+        uint256 balance = getBalance(_manager, _currency);
+        uint256 unavailableBalance = getUnavailableBalance(_manager, _currency);
+        return balance - unavailableBalance;
+    }
+
+    function getUnavailableBalance(address _manager, Currency _currency) private view returns(uint256) {
+        uint256 balance = 0;
+        Table[] memory tables = s_managerToTables[_manager];
+
+        for (uint8 i = 0; i < tables.length; i++) {
+            Table table = tables[i];
+
+            if (table.s_currency() == _currency) {
+                balance += table.s_managerBalance();
+            }
+        }
+
+        return balance;
+    }
+
+    function getMinAvailableBalance(Currency _currency) private view returns(uint256) {
+        if (_currency == Currency.USDC) {
+            return s_minAvailableUsdc;
+        }
+
+        return s_minAvailableEth;
     }
 
     function createTable(uint256 _minBet, uint256 _maxBet, uint8 _maxPlayers, Currency _currency) external {
@@ -128,22 +166,29 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             revert Pit__InvalidMaxPlayers();
         }
 
-        uint256 balance = s_managerToBalance[msg.sender];
-        uint256 maxPayout = _maxBet * _maxPlayers;
-
         uint256 availableBalance = getAvailableBalance(msg.sender, _currency);
+        uint256 maxPayout = _maxBet * _maxPlayers;
+        uint256 minBalance = maxPayout + getMinAvailableBalance(_currency);
+        
+        if (availableBalance < minBalance) {
+
+        }
         
         address table = Clones.clone(s_tableImplementation);
-        Table(table).initialize(_minBet, _maxBet, _maxPlayers, _currency);
+        Table(table).initialize(msg.sender, _minBet, _maxBet, _maxPlayers, _currency);
 
         s_tableToState[table] = TableState(false, 0);
-        s_managerToTables[msg.sender].push(table);
+        s_managerToTables[msg.sender].push(Table(table));
 
         emit TableCreated(table, msg.sender, _minBet, _maxBet);
     }
 
+    function fundTable(address _table, uint256 _amount, Currency _currency) external onlyManager(_table) {
+        
+    }
+
     receive() external payable {
-        s_managerToBalance[msg.sender] += msg.value;
+        s_managerToEthBalance[msg.sender] += msg.value;
 
         emit Received(msg.sender, msg.value);
     }
