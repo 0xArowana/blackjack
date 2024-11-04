@@ -17,13 +17,14 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     error Pit__VrfRequestNotFound();
     error Pit__InvalidMaxBet();
     error Pit__InvalidMaxPlayers();
+    error Pit__InvalidStartingBalance();
 
     // Managers
     mapping(address => uint256) public s_managerToEthBalance;
 
     address private s_usdc;
-    uint256 private s_minAvailableEth;
-    uint256 private s_minAvailableUsdc;
+    uint256 private s_minTableReservesEth;
+    uint256 private s_minTableReservesUsdc;
 
     // Chainlink VRF
     address private s_vrfCoordinator;
@@ -66,8 +67,8 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
 
     function initialize(
         address _usdc,
-        uint256 _minAvailableEth,
-        uint256 _minAvailableUsdc,
+        uint256 _minTableReservesEth,
+        uint256 _minTableReservesUsdc,
         address _vrfCoordinator,
         bytes32 _vrfKeyHash, 
         uint256 _vrfSubscriptionId, 
@@ -78,8 +79,8 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         __VRFConsumerBaseV2_init(_vrfCoordinator);
         
         s_usdc = _usdc;
-        s_minAvailableEth = _minAvailableEth;
-        s_minAvailableUsdc = _minAvailableUsdc;
+        s_minTableReservesEth = _minTableReservesEth;
+        s_minTableReservesUsdc = _minTableReservesUsdc;
         s_vrfCoordinator = _vrfCoordinator;
         s_vrfKeyHash =  _vrfKeyHash;
         s_vrfSubscriptionId = _vrfSubscriptionId;
@@ -149,15 +150,15 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         return balance;
     }
 
-    function getMinAvailableBalance(Currency _currency) private view returns(uint256) {
+    function getMinTableReserves(Currency _currency) private view returns(uint256) {
         if (_currency == Currency.USDC) {
-            return s_minAvailableUsdc;
+            return s_minTableReservesUsdc;
         }
 
-        return s_minAvailableEth;
+        return s_minTableReservesEth;
     }
 
-    function createTable(uint256 _minBet, uint256 _maxBet, uint8 _maxPlayers, Currency _currency) external {
+    function createTable(uint256 _minBet, uint256 _maxBet, uint8 _maxPlayers, Currency _currency, uint256 _startingBalance) external {
         if (_maxBet == 0) {
             revert Pit__InvalidMaxBet();
         }
@@ -166,16 +167,24 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             revert Pit__InvalidMaxPlayers();
         }
 
-        uint256 availableBalance = getAvailableBalance(msg.sender, _currency);
         uint256 maxPayout = _maxBet * _maxPlayers;
-        uint256 minBalance = maxPayout + getMinAvailableBalance(_currency);
+        uint256 minBalance = maxPayout + getMinTableReserves(_currency);
         
-        if (availableBalance < minBalance) {
+        if (_startingBalance > 0 && _startingBalance < minBalance) {
+            revert Pit__InvalidStartingBalance();
+        }
 
+        uint256 availableBalance = getAvailableBalance(msg.sender, _currency);
+        uint256 amountToFund = max(minBalance, _startingBalance);
+
+        if (availableBalance < amountToFund) {
+            revert Pit__InsufficientBalance();
         }
         
         address table = Clones.clone(s_tableImplementation);
         Table(table).initialize(msg.sender, _minBet, _maxBet, _maxPlayers, _currency);
+
+        fundTable(table, amountToFund);
 
         s_tableToState[table] = TableState(false, 0);
         s_managerToTables[msg.sender].push(Table(table));
@@ -183,8 +192,24 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         emit TableCreated(table, msg.sender, _minBet, _maxBet);
     }
 
-    function fundTable(address _table, uint256 _amount, Currency _currency) external onlyManager(_table) {
+    function fundTable(address _table, uint256 _amount) public payable onlyManager(_table) {
+        if (msg.value > 0) {
+            s_managerToEthBalance[msg.sender] += msg.value;
+            emit Received(msg.sender, msg.value);
+        }
         
+        Currency currency = Table(_table).s_currency();
+        uint256 availableBalance = getAvailableBalance(msg.sender, currency);
+
+        if (_amount < availableBalance) {
+            revert Pit__InsufficientBalance();
+        }
+
+        Table(_table).fund(_amount);
+    }
+    
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a >= b ? a : b;
     }
 
     receive() external payable {
