@@ -5,7 +5,6 @@ import {Script} from "forge-std/Script.sol";
 import {Pit} from "../src/Pit.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {HelperConfig} from "./HelperConfig.s.sol";
-import {console} from "forge-std/console.sol";
 
 contract DeployPit is Script {
     uint256 constant RESERVE_RATIO = 120;
@@ -14,7 +13,6 @@ contract DeployPit is Script {
         HelperConfig helperConfig = new HelperConfig();
 
         (
-            address[] approvedTokens,
             address vrfCoordinator,
             bytes32 vrfKeyHash,
             uint256 vrfSubscriptionId,
@@ -24,7 +22,7 @@ contract DeployPit is Script {
         Pit proxy = Pit(payable(deployPit()));
 
         proxy.initialize(
-            approvedTokens,
+            helperConfig.getApprovedTokens(),
             RESERVE_RATIO,
             LIQUIDATION_GRACE_PERIOD,
             vrfCoordinator,
