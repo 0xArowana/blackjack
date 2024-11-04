@@ -4,14 +4,17 @@ pragma solidity ^0.8.18;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Pit} from "./Pit.sol";
-import {Game} from "./Game.sol";
 
 contract Table is Initializable, OwnableUpgradeable {
-    error Table__NotGame();
     error Table__InvalidSeatNumber();
+    error Table__InvalidMaxPlayers();
     error Table__InvalidPlayer();
     error Table__NoCards();
+    error Table__NotEmpty();
+    error Table__NotLocked();
+    error Table__NotUnlocked();
     error Table__PlayerNotFound();
     error Table__SeatOccupied();
     error Table__BetAlreadyPlaced();
@@ -19,6 +22,7 @@ contract Table is Initializable, OwnableUpgradeable {
     error Table__BetLessThanMin();
     error Table__BettingInProgress();
     error Table__GameInProgress();
+    error Table__LiquidationGracePeriod();
     error Table__NotBetStatus();
     error Table__NotCurrentPlayer();
     error Table__NotInactiveStatus();
@@ -31,9 +35,10 @@ contract Table is Initializable, OwnableUpgradeable {
     uint256 internal s_minBet;
     uint256 internal s_maxBet;
     uint8 internal s_maxPlayers;
+    address public s_token;
     address public s_manager;
     uint256 public s_managerBalance;
-    Pit.Currency public s_currency;
+    uint256 internal s_lockTimestamp;
     uint256[] internal s_randomWords;
     bool s_continuousPlay;
 
@@ -68,45 +73,111 @@ contract Table is Initializable, OwnableUpgradeable {
         _;
     }
 
-    modifier onlyInactive{
+    modifier whenUnlocked {
+        if (s_lockTimestamp > 0) {
+            revert Table__NotUnlocked();
+        }
+        _;
+    }
+
+    modifier whenLocked {
+        if (s_lockTimestamp == 0) {
+            revert Table__NotLocked();
+        }
+        _;
+    }
+
+    modifier whenEmpty {
+        if (s_players.length > 0) {
+            revert Table__NotEmpty();
+        }
+        _;
+    }
+
+    modifier whenInactive {
         if (s_gameStatus != GameStatus.Inactive) {
             revert Table__NotInactiveStatus();
         }
         _;
     }
 
-    modifier notDuringGame {
+    modifier whenInactiveOrBet {
         if (s_gameStatus != GameStatus.Bet && s_gameStatus != GameStatus.Inactive) {
             revert Table__GameInProgress();
         }
         _;
     }
 
-    function initialize(address _manager, uint256 _minBet, uint256 _maxBet, uint8 _maxPlayers, Pit.Currency _currency) public initializer {
+    modifier healthCheck {
+        _;
+
+        uint256 totalBets = 0;
+
+        for (uint8 i = 0; i < s_players.length; i++) {
+            address player = s_players[i];
+            uint256 bet = s_playerStates[player].bet;
+            totalBets += bet;
+        }
+
+        uint256 minBalance = totalBets * Pit(owner()).s_reserveRatio() / 100;
+
+        if (s_managerBalance < minBalance) {
+            lock();
+        }
+    }
+
+    function initialize(
+        address _manager, 
+        uint256 _minBet, 
+        uint256 _maxBet, 
+        uint8 _maxPlayers, 
+        address _token
+    ) public initializer {
         __Ownable_init(msg.sender);
 
         s_manager = _manager;
         s_minBet = _minBet;
         s_maxBet = _maxBet;
         s_maxPlayers = _maxPlayers;
-        s_currency = _currency;
+        s_token = _token;
 
         refreshRandomWords();
+    }
+
+    function lock() internal {
+        s_lockTimestamp = block.timestamp;
+    }
+
+    function unlock() internal {
+        s_lockTimestamp = 0;
     }
 
     function fund(uint256 _amount) external onlyOwner {
         s_managerBalance += _amount;
     }
 
-    function withdraw(uint256 _amount) external onlyOwner {
+    function withdraw(uint256 _amount) external onlyOwner whenInactive whenUnlocked {
         if (_amount > s_managerBalance) {
             revert Table__WithdrawExceedsBalance();
         }
 
+        // TODO: Revert if below liquidation threshold
+
         s_managerBalance -= _amount;
     }
 
-    function startGame() external onlyOwner onlyInactive {
+    function liquidate() external payable whenLocked {
+        uint256 gracePeriod = Pit(owner()).s_liquidationGracePeriod();
+        uint256 liquidationStartTime = s_lockTimestamp + gracePeriod;
+
+        if (block.timestamp <= liquidationStartTime) {
+            revert Table__LiquidationGracePeriod();
+        }
+
+
+    }
+
+    function startGame() external onlyOwner whenInactive {
         s_gameStatus = GameStatus.Bet;
 
         emit GameStarted();
@@ -132,7 +203,7 @@ contract Table is Initializable, OwnableUpgradeable {
         s_players.push(msg.sender);
     }
 
-    function leave() external notDuringGame {
+    function leave() external whenInactiveOrBet whenUnlocked {
         uint8 seatNumber = s_playerToSeatNumber[msg.sender];
 
         if (seatNumber == 0) {
@@ -170,20 +241,24 @@ contract Table is Initializable, OwnableUpgradeable {
         s_players.pop();
     }
 
-    function setMinBet(uint256 _amount) external onlyOwner onlyInactive {
+    function setMinBet(uint256 _amount) external onlyOwner whenInactive whenUnlocked {
         s_minBet = _amount;
     }
 
-    function setMaxBet(uint256 _amount) external onlyOwner onlyInactive {
+    function setMaxBet(uint256 _amount) external onlyOwner whenInactive whenUnlocked {
         s_maxBet = _amount;
     }
 
-    function setMaxPlayers(uint8 _maxPlayers) external onlyOwner onlyInactive {
+    function setMaxPlayers(uint8 _maxPlayers) external onlyOwner whenInactive whenUnlocked {
+        if (_maxPlayers < (s_players.length + 1) || _maxPlayers > 7) {
+            revert Table__InvalidMaxPlayers();
+        }
+        
         s_maxPlayers = _maxPlayers;
     }
 
-    function setCurrency(Pit.Currency _currency) external onlyOwner onlyInactive {
-        s_currency = _currency;
+    function setToken(address _token) external onlyOwner whenInactive whenUnlocked whenEmpty {
+        s_token = _token;
     }
 
     function setRandomWords(uint256[] calldata _randomWords) external onlyOwner {
@@ -229,7 +304,7 @@ contract Table is Initializable, OwnableUpgradeable {
         s_dealerHand.push(drawCard());
     }
 
-    function placeBet(uint256 _amount) external payable {
+    function placeBet(uint256 _amount) external payable whenUnlocked healthCheck {
         if (s_gameStatus != GameStatus.Bet) {
             revert Table__NotBetStatus();
         }
@@ -257,7 +332,7 @@ contract Table is Initializable, OwnableUpgradeable {
         s_gameStatus = GameStatus.PlayerTurn;
     }
 
-    function hit() onlyCurrentPlayer external {
+    function hit() external onlyCurrentPlayer whenUnlocked {
         uint8 card = drawCard();
 
         // If card drawn is ace...

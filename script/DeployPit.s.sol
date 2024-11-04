@@ -8,11 +8,13 @@ import {HelperConfig} from "./HelperConfig.s.sol";
 import {console} from "forge-std/console.sol";
 
 contract DeployPit is Script {
+    uint256 constant RESERVE_RATIO = 120;
+    uint256 constant LIQUIDATION_GRACE_PERIOD = 60;
     function run() external returns (address) {
         HelperConfig helperConfig = new HelperConfig();
 
         (
-            address usdc,
+            address[] approvedTokens,
             address vrfCoordinator,
             bytes32 vrfKeyHash,
             uint256 vrfSubscriptionId,
@@ -22,9 +24,9 @@ contract DeployPit is Script {
         Pit proxy = Pit(payable(deployPit()));
 
         proxy.initialize(
-            usdc,
-            100,
-            100,
+            approvedTokens,
+            RESERVE_RATIO,
+            LIQUIDATION_GRACE_PERIOD,
             vrfCoordinator,
             vrfKeyHash,
             vrfSubscriptionId,
