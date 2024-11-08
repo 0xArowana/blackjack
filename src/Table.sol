@@ -3,12 +3,13 @@ pragma solidity ^0.8.18;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Pit} from "./Pit.sol";
 
-contract Table is Initializable, OwnableUpgradeable {
-    error Table__InvalidSeatNumber();
+contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
+    error Table__BetTransferFailed();
+    error Table__InvalidSeat();
     error Table__InvalidMaxPlayers();
     error Table__InvalidPlayer();
     error Table__NoCards();
@@ -23,31 +24,52 @@ contract Table is Initializable, OwnableUpgradeable {
     error Table__BettingInProgress();
     error Table__GameInProgress();
     error Table__LiquidationGracePeriod();
+    error Table__NoRefundAvailable();
     error Table__NotBetStatus();
     error Table__NotCurrentPlayer();
     error Table__NotInactiveStatus();
     error Table__NotPlayerTurnStatus();
+    error Table__RefundTransferFailed();
     error Table__WithdrawExceedsBalance();
 
-    mapping(address => uint8) public s_playerToSeatNumber;
-    mapping(uint8 => address) public s_seatNumberToPlayer;
     address[] s_players;
-    uint256 internal s_minBet;
-    uint256 internal s_maxBet;
+    mapping(address => PlayerState) public s_playerToState;
+    mapping(uint8 => address) public s_seatToPlayer;
+    BetRange s_betRange;
+    Rules s_rules;
     uint8 internal s_maxPlayers;
     address public s_token;
     address public s_manager;
     uint256 public s_managerBalance;
     uint256 internal s_lockTimestamp;
     uint256[] internal s_randomWords;
-    bool s_continuousPlay;
-
-    // Game
-    mapping(address => PlayerState) internal s_playerStates;
+    bool s_continuousPlay;    
     
     GameStatus internal s_gameStatus;
     uint8[] internal s_dealerHand;
-    address internal s_currentPlayerAddress;
+    address internal s_currentPlayer;
+
+    struct Rules {
+        uint8 deckCount;
+        bool dealerHitOnSoft17;
+        bool allowDoubleAfterSplit;
+        uint8 maxResplitHands;
+        bool allowResplitAces;
+        bool allowHitSplitAces; 
+        bool allowLateSurrender;
+    }
+
+    struct BetRange {
+        uint256 min;
+        uint256 max;
+    }
+
+    struct PlayerState {
+        uint8 seat;
+        uint256 bet;
+        uint8[] hand;
+        uint256 refund;
+    }
 
     enum GameStatus {
         Inactive,
@@ -56,18 +78,13 @@ contract Table is Initializable, OwnableUpgradeable {
         DealerTurn
     }
 
-    struct PlayerState {
-        uint8[] hand;
-        uint256 bet;
-    }
-
     event GameStarted();
 
     modifier onlyCurrentPlayer {
         if (s_gameStatus != GameStatus.PlayerTurn) {
             revert Table__NotPlayerTurnStatus();
         }
-        if (msg.sender == address(s_currentPlayerAddress)) {
+        if (msg.sender == address(s_currentPlayer)) {
             revert Table__NotCurrentPlayer();
         }
         _;
@@ -111,37 +128,38 @@ contract Table is Initializable, OwnableUpgradeable {
     modifier healthCheck {
         _;
 
-        uint256 totalBets = 0;
-
-        for (uint8 i = 0; i < s_players.length; i++) {
-            address player = s_players[i];
-            uint256 bet = s_playerStates[player].bet;
-            totalBets += bet;
-        }
-
-        uint256 minBalance = totalBets * Pit(owner()).s_reserveRatio() / 100;
-
-        if (s_managerBalance < minBalance) {
+        if (s_managerBalance < getMinManagerBalance()) {
             lock();
         }
     }
 
     function initialize(
-        address _manager, 
-        uint256 _minBet, 
-        uint256 _maxBet, 
-        uint8 _maxPlayers, 
+        address _manager,  
+        uint8 _maxPlayers,
+        BetRange memory _betRange,
+        Rules memory _rules,
         address _token
     ) public initializer {
         __Ownable_init(msg.sender);
 
         s_manager = _manager;
-        s_minBet = _minBet;
-        s_maxBet = _maxBet;
         s_maxPlayers = _maxPlayers;
+        s_betRange = _betRange;
+        s_rules = _rules;
         s_token = _token;
 
         refreshRandomWords();
+    }
+
+    function getMinManagerBalance() internal view returns (uint256) {
+        uint256 minBalance = 0;
+
+        for (uint8 i = 0; i < s_players.length; i++) {
+            address player = s_players[i];
+            minBalance += s_playerToState[player].bet;
+        }
+
+        return minBalance;
     }
 
     function lock() internal {
@@ -166,15 +184,39 @@ contract Table is Initializable, OwnableUpgradeable {
         s_managerBalance -= _amount;
     }
 
-    function liquidate() external payable whenLocked {
-        uint256 gracePeriod = Pit(owner()).s_liquidationGracePeriod();
+    function liquidate() external whenLocked {
+        Pit pit = Pit(owner());
+        uint256 gracePeriod = pit.s_liquidationGracePeriod();
         uint256 liquidationStartTime = s_lockTimestamp + gracePeriod;
 
         if (block.timestamp <= liquidationStartTime) {
             revert Table__LiquidationGracePeriod();
         }
 
+        for (uint8 i = 0; i < s_players.length; i++) {
+            address player = s_players[i];
+            uint256 refund = s_playerToState[player].bet;
+            s_playerToState[player].refund = refund;
+        }
 
+        pit.chargeFee();
+        resetGame();
+    }
+
+    function claimRefund() external {
+        uint256 amount = s_playerToState[msg.sender].refund;
+
+        if (amount == 0) {
+            revert Table__NoRefundAvailable();
+        }
+
+        bool success = IERC20(s_token).transfer(msg.sender, amount);
+
+        if (!success) {
+            revert Table__RefundTransferFailed();
+        }
+
+        s_playerToState[msg.sender].refund = 0;
     }
 
     function startGame() external onlyOwner whenInactive {
@@ -183,43 +225,52 @@ contract Table is Initializable, OwnableUpgradeable {
         emit GameStarted();
     }
 
-    function sit(uint8 _seatNumber) external {
+    function resetGame() internal {
+        for (uint8 i = 0; i < s_players.length; i++) {
+            address player = s_players[i];
+            s_playerToState[player].bet = 0;
+            delete s_playerToState[player].hand;
+        }
+
+        s_gameStatus = GameStatus.Inactive;
+    }
+
+    function sit(uint8 _seat) external {
         if (msg.sender == owner()) {
             revert Table__InvalidPlayer();
         }
 
-        if (_seatNumber > s_maxPlayers || _seatNumber < 1) {
-            revert Table__InvalidSeatNumber();
+        if (_seat > s_maxPlayers || _seat < 1) {
+            revert Table__InvalidSeat();
         }
 
-        address occupant = s_seatNumberToPlayer[_seatNumber];
+        address occupant = s_seatToPlayer[_seat];
         
         if (occupant != msg.sender && occupant != address(0)) {
             revert Table__SeatOccupied();
         }
 
-        s_playerToSeatNumber[msg.sender] = _seatNumber;
-        s_seatNumberToPlayer[_seatNumber] = msg.sender;
+        s_playerToState[msg.sender].seat = _seat;
+        s_seatToPlayer[_seat] = msg.sender;
         s_players.push(msg.sender);
     }
 
     function leave() external whenInactiveOrBet whenUnlocked {
-        uint8 seatNumber = s_playerToSeatNumber[msg.sender];
+        uint8 seat = s_playerToState[msg.sender].seat;
 
-        if (seatNumber == 0) {
+        if (seat == 0) {
             revert Table__PlayerNotFound();
         }
 
-        s_playerToSeatNumber[msg.sender] = 0;
-        s_seatNumberToPlayer[seatNumber] = address(0);
+        s_playerToState[msg.sender].seat = 0;
+        s_seatToPlayer[seat] = address(0);
         removePlayer(msg.sender);
 
         // Start game if all remaining players placed bets
         if (s_gameStatus == GameStatus.Bet) {
             for (uint8 i = 0; i < s_players.length; i++) {
                 address player = s_players[i];
-                uint256 bet = s_playerStates[player].bet;
-                if (bet == 0) return;
+                if (s_playerToState[player].bet == 0) return;
             }
 
             initialDeal();
@@ -241,12 +292,8 @@ contract Table is Initializable, OwnableUpgradeable {
         s_players.pop();
     }
 
-    function setMinBet(uint256 _amount) external onlyOwner whenInactive whenUnlocked {
-        s_minBet = _amount;
-    }
-
-    function setMaxBet(uint256 _amount) external onlyOwner whenInactive whenUnlocked {
-        s_maxBet = _amount;
+    function setBetRange(BetRange memory _betRange) external onlyOwner whenInactive whenUnlocked {
+        s_betRange = _betRange;
     }
 
     function setMaxPlayers(uint8 _maxPlayers) external onlyOwner whenInactive whenUnlocked {
@@ -297,35 +344,40 @@ contract Table is Initializable, OwnableUpgradeable {
 
             for (uint256 j = 0; j < 2; j++) {
                 uint8 card = drawCard();
-                s_playerStates[playerAddress].hand.push(card);
+                s_playerToState[playerAddress].hand.push(card);
             }
         }
 
         s_dealerHand.push(drawCard());
     }
 
-    function placeBet(uint256 _amount) external payable whenUnlocked healthCheck {
+    function placeBet(uint256 _amount) external whenUnlocked healthCheck nonReentrant {
         if (s_gameStatus != GameStatus.Bet) {
             revert Table__NotBetStatus();
         }
 
-        if (_amount > s_maxBet) {
+        if (_amount > s_betRange.max) {
             revert Table__BetGreaterThanMax();
         }
 
-        if (_amount < s_minBet) {
+        if (_amount < s_betRange.min) {
             revert Table__BetGreaterThanMax();
         }
 
-        if (s_playerStates[msg.sender].bet > 0) {
+        if (s_playerToState[msg.sender].bet > 0) {
             revert Table__BetAlreadyPlaced();
         }
 
-        s_playerStates[msg.sender].bet = _amount;
+        s_playerToState[msg.sender].bet = _amount;
+        bool success = IERC20(s_token).transferFrom(msg.sender, address(this), _amount);
+
+        if (!success) {
+            revert Table__BetTransferFailed();
+        }
 
         for (uint8 i = 0; i < s_players.length; i++) {
             address playerAddress = s_players[i];
-            if (s_playerStates[playerAddress].bet == 0) return;
+            if (s_playerToState[playerAddress].bet == 0) return;
         }
 
         initialDeal();

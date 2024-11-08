@@ -7,8 +7,9 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {HelperConfig} from "./HelperConfig.s.sol";
 
 contract DeployPit is Script {
-    uint256 constant RESERVE_RATIO = 120;
     uint256 constant LIQUIDATION_GRACE_PERIOD = 60;
+    uint256 constant LIQUIDATION_FEE = 100;
+
     function run() external returns (address) {
         HelperConfig helperConfig = new HelperConfig();
 
@@ -23,8 +24,8 @@ contract DeployPit is Script {
 
         proxy.initialize(
             helperConfig.getApprovedTokens(),
-            RESERVE_RATIO,
             LIQUIDATION_GRACE_PERIOD,
+            LIQUIDATION_FEE,
             vrfCoordinator,
             vrfKeyHash,
             vrfSubscriptionId,
