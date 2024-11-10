@@ -148,7 +148,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         if (_amount == 0) {
             revert Table__InvalidBet();
         }
-        if (_amount > s_betRange.max) {
+        if (s_betRange.max != 0 && _amount > s_betRange.max) {
             revert Table__BetGreaterThanMax();
         }
         if (_amount < s_betRange.min) {
