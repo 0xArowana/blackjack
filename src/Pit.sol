@@ -20,9 +20,9 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     error Pit__NotManager();
     error Pit__NotTable();
     error Pit__VrfRequestNotFound();
+    error Pit__InsufficientBets();
     error Pit__InsufficientManagerBalance();
     error Pit__InvalidMaxPlayers();
-    error Pit__InvalidManagerBalance();
 
     uint256 public constant LIQUIDATION_FEE_PRECISION = 10000;
 
@@ -179,7 +179,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         Table(payable(table)).setRandomWords(_randomWords);
     }
 
-    function updateBets(uint256 _amount) external onlyTable {
+    function addBets(uint256 _amount) external onlyTable {
         Table table = Table(payable(msg.sender));
         address manager = s_tableToManager[msg.sender];
         address token = table.s_token();
@@ -198,6 +198,17 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
 
             s_managerToTokenToLockTimestamp[manager][token] = block.timestamp;
         }
+    }
+
+    function removeBets(uint256 _amount) external onlyTable {
+        address manager = s_tableToManager[msg.sender];
+        address token = Table(payable(msg.sender)).s_token();
+
+        if (_amount > s_managerToTokenToBets[manager][token]) {
+            revert Pit__InsufficientBets();
+        }
+
+        s_managerToTokenToBets[manager][token] -= _amount;
     }
 
     function deposit(address _token, uint256 _amount) external approveToken(_token, false) handleDeposit(_token, _amount) {

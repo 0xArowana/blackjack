@@ -160,7 +160,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     
         _;
 
-        Pit(payable(owner())).updateBets(_amount);
+        Pit(payable(owner())).addBets(_amount);
 
         for (uint8 i = 0; i < s_players.length; i++) {
             address playerAddress = s_players[i];
@@ -235,14 +235,18 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function resetGame() external onlyOwner {
+        uint256 betsToRemove = 0;
+
         for (uint8 i = 0; i < s_players.length; i++) {
             address player = s_players[i];
-            uint256 refund = s_playerToState[player].bet;
-            s_playerToState[player].refund = refund;
+            uint256 bet = s_playerToState[player].bet;
+            betsToRemove += bet;
+            s_playerToState[player].refund = bet;
             s_playerToState[player].bet = 0;
             delete s_playerToState[player].hand;
         }
 
+        Pit(payable(owner())).removeBets(betsToRemove);
         s_gameStatus = GameStatus.Inactive;
     }
 
