@@ -33,7 +33,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__RefundTransferFailed();
     error Table__UsesEth();
     error Table__UsesToken();
-    error Table__WithdrawExceedsBalance();
 
     address[] s_players;
     mapping(address => PlayerState) public s_playerToState;
@@ -43,9 +42,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     uint8 internal s_maxPlayers;
     address public s_token;
     address public s_manager;
-    uint256 public s_managerBalance;
-    uint256 internal s_lockTimestamp;
     uint256[] internal s_randomWords;
+    bool s_locked;
     bool s_continuousPlay;    
     
     GameStatus internal s_gameStatus;
@@ -109,14 +107,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     modifier whenUnlocked {
-        if (s_lockTimestamp > 0) {
+        if (s_locked) {
             revert Table__NotUnlocked();
         }
         _;
     }
 
     modifier whenLocked {
-        if (s_lockTimestamp == 0) {
+        if (!s_locked) {
             revert Table__NotLocked();
         }
         _;
@@ -162,19 +160,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     
         _;
 
+        Pit(payable(owner())).updateBets(_amount);
+
         for (uint8 i = 0; i < s_players.length; i++) {
             address playerAddress = s_players[i];
             if (s_playerToState[playerAddress].bet == 0) return;
         }
+
         startGame();
-    }
-
-    modifier healthCheck {
-        _;
-
-        if (s_managerBalance < getMinManagerBalance()) {
-            lock();
-        }
     }
 
     function initialize(
@@ -206,45 +199,12 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         return minBalance;
     }
 
-    function lock() internal {
-        s_lockTimestamp = block.timestamp;
+    function lock() external onlyOwner {
+        s_locked = true;
     }
 
-    function unlock() internal {
-        s_lockTimestamp = 0;
-    }
-
-    function fund(uint256 _amount) external onlyOwner {
-        s_managerBalance += _amount;
-    }
-
-    function withdraw(uint256 _amount) external onlyOwner whenInactive whenUnlocked {
-        if (_amount > s_managerBalance) {
-            revert Table__WithdrawExceedsBalance();
-        }
-
-        // TODO: Revert if below liquidation threshold
-
-        s_managerBalance -= _amount;
-    }
-
-    function liquidate() external whenLocked {
-        Pit pit = Pit(payable(owner()));
-        uint256 gracePeriod = pit.s_liquidationGracePeriod();
-        uint256 liquidationStartTime = s_lockTimestamp + gracePeriod;
-
-        if (block.timestamp <= liquidationStartTime) {
-            revert Table__LiquidationGracePeriod();
-        }
-
-        for (uint8 i = 0; i < s_players.length; i++) {
-            address player = s_players[i];
-            uint256 refund = s_playerToState[player].bet;
-            s_playerToState[player].refund = refund;
-        }
-
-        pit.chargeFee();
-        resetGame();
+    function unlock() external onlyOwner {
+        s_locked = false;
     }
 
     function claimRefund() external {
@@ -274,9 +234,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         emit GameStarted();
     }
 
-    function resetGame() internal {
+    function resetGame() external onlyOwner {
         for (uint8 i = 0; i < s_players.length; i++) {
             address player = s_players[i];
+            uint256 refund = s_playerToState[player].bet;
+            s_playerToState[player].refund = refund;
             s_playerToState[player].bet = 0;
             delete s_playerToState[player].hand;
         }
@@ -399,7 +361,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_dealerHand.push(drawCard());
     }
 
-    function placeBet(uint256 _amount) external whenUnlocked healthCheck onlyToken nonReentrant handleBet(_amount) {
+    function placeBet(uint256 _amount) external whenUnlocked onlyToken nonReentrant handleBet(_amount) {
         s_playerToState[msg.sender].bet = _amount;
         bool success = IERC20(s_token).transferFrom(msg.sender, address(this), _amount);
 
@@ -417,7 +379,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         } 
     }
 
-    receive() external payable whenUnlocked healthCheck onlyEth handleBet(msg.value) {
+    receive() external payable whenUnlocked onlyEth handleBet(msg.value) {
         s_playerToState[msg.sender].bet = msg.value;
     }
 

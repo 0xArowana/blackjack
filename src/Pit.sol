@@ -16,6 +16,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     error Pit__DepositTransferFailed();
     error Pit__InsufficientBalance();
     error Pit__NotApprovedToken();
+    error Pit__NotLiquidatable();
     error Pit__NotManager();
     error Pit__NotTable();
     error Pit__VrfRequestNotFound();
@@ -38,19 +39,14 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     // Managers
     mapping(address => address[]) public s_managerToTables;
     mapping(address => mapping(address => uint256)) public s_managerToTokenToBalance;
+    mapping(address => mapping(address => uint256)) public s_managerToTokenToBets;
+    mapping(address => mapping(address => uint256)) public s_managerToTokenToLockTimestamp;
 
     // Tables
     address s_tableImplementation;
     mapping(address => address) public s_tableToManager;
 
     struct VrfConfig {
-        address coordinator;
-        bytes32 keyHash;
-        uint256 subscriptionId;
-        uint32 callbackGasLimit;
-    }
-
-    struct AaveConfig {
         address coordinator;
         bytes32 keyHash;
         uint256 subscriptionId;
@@ -93,6 +89,30 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         }
 
         _;
+    }
+
+    modifier handleDeposit(address _token, uint256 _amount) {
+        _;
+
+        s_managerToTokenToBalance[msg.sender][_token] += _amount;
+
+        if (s_managerToTokenToLockTimestamp[msg.sender][_token] == 0) {
+            return;
+        }
+
+        if (s_managerToTokenToBalance[msg.sender][_token] >= s_managerToTokenToBets[msg.sender][_token]) {
+            address[] memory tables = s_managerToTables[msg.sender];
+
+            for (uint8 i = 0; i < tables.length; i++) {
+                Table tableToUnlock = Table(payable(tables[i]));
+
+                if (tableToUnlock.s_token() == _token) {
+                    tableToUnlock.unlock();
+                }
+            }
+
+            s_managerToTokenToLockTimestamp[msg.sender][_token] = 0;
+        }
     }
 
     function initialize(
@@ -159,51 +179,42 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         Table(payable(table)).setRandomWords(_randomWords);
     }
 
-    function getAvailableBalance(address _manager, address _token) private view returns(uint256) {
-        uint256 balance = s_managerToTokenToBalance[_manager][_token];
-        uint256 unavailableBalance = getUnavailableBalance(_manager, _token);
+    function updateBets(uint256 _amount) external onlyTable {
+        Table table = Table(payable(msg.sender));
+        address manager = s_tableToManager[msg.sender];
+        address token = table.s_token();
+        s_managerToTokenToBets[manager][token] += _amount;
+        
+        if (s_managerToTokenToBalance[manager][token] < s_managerToTokenToBets[manager][token]) {
+            address[] memory tables = s_managerToTables[manager];
 
-        if (unavailableBalance > balance) {
-            revert Pit__InvalidManagerBalance();
-        }
- 
-        return balance - unavailableBalance;
-    }
+            for (uint8 i = 0; i < tables.length; i++) {
+                Table tableToLock = Table(payable(tables[i]));
 
-    function getUnavailableBalance(address _manager, address _token) private view returns(uint256) {
-        uint256 balance = 0;
-        address[] memory tables = s_managerToTables[_manager];
-
-        for (uint8 i = 0; i < tables.length; i++) {
-            Table table = Table(payable(tables[i]));
-
-            if (table.s_token() == _token) {
-                balance += table.s_managerBalance();
+                if (tableToLock.s_token() == token) {
+                    tableToLock.lock();
+                }
             }
-        }
 
-        return balance;
+            s_managerToTokenToLockTimestamp[manager][token] = block.timestamp;
+        }
     }
 
-    function deposit(address _token, uint256 _amount) external approveToken(_token, false) {
+    function deposit(address _token, uint256 _amount) external approveToken(_token, false) handleDeposit(_token, _amount) {
         bool success = IERC20(_token).transferFrom(msg.sender, address(this), _amount);
 
         if (!success) {
             revert Pit__DepositTransferFailed();
         }
 
-        s_managerToTokenToBalance[msg.sender][_token] += _amount;
-
         IPool(s_pool).supply(_token, _amount, address(this), 0);
-        
     }
 
     function createTable(
         uint8 _maxPlayers,
         Table.BetRange memory _betRange,
         Table.Rules memory _rules,
-        address _token,
-        uint256 _startingBalance
+        address _token
     ) external approveToken(_token, true) {
         if (_maxPlayers < 1 || _maxPlayers > 7) {
             revert Pit__InvalidMaxPlayers();
@@ -218,53 +229,42 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             _token
         );
 
-        if (_startingBalance > 0) {
-            fundTable(table, _startingBalance);
-        }
-
         s_tableToManager[table] = msg.sender;
         s_managerToTables[msg.sender].push(table);
 
         emit TableCreated(table, msg.sender, _betRange);
-    }
-
-    function fundTable(address _table, uint256 _amount) public onlyManager(_table) { 
-        Table table = Table(payable(_table));       
-        address token = table.s_token();
-        uint256 availableBalance = getAvailableBalance(msg.sender, token);
-
-        if (_amount > availableBalance) {
-            revert Pit__InsufficientBalance();
-        }
-
-        table.fund(_amount);
     }
     
     function max(uint256 a, uint256 b) internal pure returns (uint256) {
         return a >= b ? a : b;
     }
 
-    function chargeFee() external {
-        address manager = s_tableToManager[msg.sender];
+    function liquidate(address _manager, address _token) external approveToken(_token, true) {
+        uint256 lockTimestamp = s_managerToTokenToLockTimestamp[_token][msg.sender];
+        uint256 liquidatableStartTime = lockTimestamp + s_liquidationGracePeriod;
 
-        if (manager == address(0)) {
-            revert Pit__NotTable();
+        if (block.timestamp <= liquidatableStartTime) {
+            revert Pit__NotLiquidatable();
         }
 
-        Table table = Table(payable(msg.sender));
-        uint256 feePercentage = s_liquidationFee / LIQUIDATION_FEE_PRECISION;
-        uint256 feeAmount = table.s_managerBalance() * feePercentage;
+        address[] memory tables = s_managerToTables[_manager];
 
-        if (s_managerToTokenToBalance[manager][table.s_token()] < feeAmount) {
+        for (uint8 i = 0; i < tables.length; i++) {
+            Table(payable(tables[i])).resetGame();
+        }
+
+        uint256 feePercentage = s_liquidationFee / LIQUIDATION_FEE_PRECISION;
+        uint256 tokenBalance = s_managerToTokenToBalance[_manager][_token];
+        uint256 feeAmount = tokenBalance * feePercentage;
+
+        if (tokenBalance < feeAmount) {
             revert Pit__InsufficientManagerBalance();
         }
 
-        s_managerToTokenToBalance[manager][table.s_token()] -= feeAmount;
+        s_managerToTokenToBalance[_manager][_token] -= feeAmount;
     }
 
-    receive() external payable {
-        s_managerToTokenToBalance[msg.sender][address(0)] += msg.value;
-
+    receive() external payable handleDeposit(address(0), msg.value) {
         emit Received(msg.sender, msg.value);
     }
 
@@ -272,8 +272,5 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
 
     // function depositStaked() external
 
-    /// @param max bet
-    /// @param number of players
     /// @param timeout
-    // function createGame() external
 }
