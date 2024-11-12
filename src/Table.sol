@@ -222,9 +222,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint256 newMaxPayout = maxPayout;
 
         if (s_rules.allowDoubleAfterSplit) {
-            newMaxPayout = s_betTotal * 2 * s_rules.maxResplitHands * 6 / bjPayoutFactor;
+            newMaxPayout += s_betTotal * 2 * s_rules.maxResplitHands * 6 / bjPayoutFactor;
         } else {
-            newMaxPayout = s_betTotal * (s_rules.maxResplitHands + 1) * 6 / bjPayoutFactor;
+            newMaxPayout += s_betTotal * (s_rules.maxResplitHands + 1) * 6 / bjPayoutFactor;
         }
 
         pit.setMaxPayout(newMaxPayout);

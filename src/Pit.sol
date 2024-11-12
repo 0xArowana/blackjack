@@ -99,6 +99,8 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         _;
 
         s_managerToTokenToState[msg.sender][_token].balance += _amount;
+
+        // TODO: Unlock locked tables if able
     }
 
     function initialize(
