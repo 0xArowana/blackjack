@@ -42,21 +42,29 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     address public s_manager;
     uint256[] internal s_randomWords;
     uint256 internal s_betTotal;
+    uint256 s_lockTimestamp;
     bool s_continuousPlay;    
     
     GameStatus internal s_gameStatus;
     uint8[] internal s_dealerHand;
     address internal s_currentPlayer;
 
+    enum DoubleOn {
+        FirstTwoCards,
+        NineToEleven,
+        TenToEleven
+    }
+
     struct Rules {
         uint8 deckCount;
-        bool sixToFive;
         bool dealerHitOnSoft17;
         bool allowDoubleAfterSplit;
+        DoubleOn doubleOn;
         uint8 maxResplitHands;
         bool allowResplitAces;
         bool allowHitSplitAces;
         bool allowLateSurrender;
+        bool sixToFive;
     }
 
     struct BetRange {
@@ -208,22 +216,21 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     function startGame() internal {
         Pit pit = Pit(payable(owner()));
-        (
-            uint256 balance, 
-            uint256 maxPayout
-        ) = pit.s_managerToTokenToState(s_manager, s_token);
-        uint256 bjPayoutFactor = s_rules.sixToFive ? 5 : 4;
+        (uint256 balance, uint256 maxPayout) = pit.s_managerToTokenToState(s_manager, s_token);
 
+        uint256 bjPayoutFactor = s_rules.sixToFive ? 5 : 4;
         uint256 newMaxPayout = maxPayout;
 
         if (s_rules.allowDoubleAfterSplit) {
-            newMaxPayout += s_betTotal * 2 * s_rules.maxResplitHands * 6 / bjPayoutFactor;
+            newMaxPayout = s_betTotal * 2 * s_rules.maxResplitHands * 6 / bjPayoutFactor;
         } else {
-            newMaxPayout += s_betTotal * (s_rules.maxResplitHands + 1) * 6 / bjPayoutFactor;
+            newMaxPayout = s_betTotal * (s_rules.maxResplitHands + 1) * 6 / bjPayoutFactor;
         }
 
+        pit.setMaxPayout(newMaxPayout);
+
         if (newMaxPayout < balance) {
-            // TODO: restore lock logic
+            s_lockTimestamp = block.timestamp;
             return;
         }
 
@@ -262,6 +269,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             revert Table__SeatOccupied();
         }
 
+        // TODO: Check if player already queued for seat
+
+        if (s_gameStatus != GameStatus.Inactive && s_gameStatus != GameStatus.Bet) {
+            // TODO: Add player to queue in seat
+            return;
+        }
+
         s_playerToState[msg.sender].seat = _seat;
         s_seatToPlayer[_seat] = msg.sender;
         s_players.push(msg.sender);
@@ -273,6 +287,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         if (seat == 0) {
             revert Table__PlayerNotFound();
         }
+
+        // TODO: Add placed bet to refund available, reduce betTotal, unlock if new betTotal allows
 
         s_playerToState[msg.sender].seat = 0;
         s_seatToPlayer[seat] = address(0);

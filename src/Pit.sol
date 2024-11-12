@@ -22,6 +22,8 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     error Pit__VrfRequestNotFound();
     error Pit__InsufficientManagerBalance();
     error Pit__InvalidMaxPlayers();
+    error Pit__InvalidDeckCount();
+    error Pit__InvalidMaxResplitHands();
 
     uint256 public constant LIQUIDATION_FEE_PRECISION = 10000;
 
@@ -133,6 +135,14 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         s_liquidationFee = _percentage;
     }
 
+    function setMaxPayout(uint256 _amount) external onlyTable {
+        Table table = Table(payable(msg.sender));
+        address manager = table.s_manager();
+        address token = table.s_token();
+        
+        s_managerToTokenToState[token][manager].maxPayout = _amount;
+    }
+
     function requestRandomWords() external onlyTable {
         IVRFCoordinatorV2Plus coordinator = IVRFCoordinatorV2Plus(s_vrfConfig.coordinator);
 
@@ -183,7 +193,13 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             revert Pit__InvalidMaxPlayers();
         }
 
-        // TODO: Validate rules values
+        if (_rules.maxResplitHands < 2 || _rules.maxResplitHands > 4) {
+            revert Pit__InvalidMaxResplitHands();
+        }
+
+        if (_rules.deckCount < 4 || _rules.deckCount > 8 || _rules.deckCount == 3) {
+            revert Pit__InvalidDeckCount();
+        }
         
         address table = Clones.clone(s_tableImplementation);
         Table(payable(table)).initialize(
