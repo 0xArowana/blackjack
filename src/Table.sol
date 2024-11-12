@@ -15,8 +15,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__InvalidPlayer();
     error Table__NoCards();
     error Table__NotEmpty();
-    error Table__NotLocked();
-    error Table__NotUnlocked();
     error Table__PlayerNotFound();
     error Table__SeatOccupied();
     error Table__BetAlreadyPlaced();
@@ -43,7 +41,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     address public s_token;
     address public s_manager;
     uint256[] internal s_randomWords;
-    bool s_locked;
+    uint256 internal s_betTotal;
     bool s_continuousPlay;    
     
     GameStatus internal s_gameStatus;
@@ -52,11 +50,12 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     struct Rules {
         uint8 deckCount;
+        bool sixToFive;
         bool dealerHitOnSoft17;
         bool allowDoubleAfterSplit;
         uint8 maxResplitHands;
         bool allowResplitAces;
-        bool allowHitSplitAces; 
+        bool allowHitSplitAces;
         bool allowLateSurrender;
     }
 
@@ -106,20 +105,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         _;
     }
 
-    modifier whenUnlocked {
-        if (s_locked) {
-            revert Table__NotUnlocked();
-        }
-        _;
-    }
-
-    modifier whenLocked {
-        if (!s_locked) {
-            revert Table__NotLocked();
-        }
-        _;
-    }
-
     modifier whenEmpty {
         if (s_players.length > 0) {
             revert Table__NotEmpty();
@@ -157,10 +142,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         if (s_playerToState[msg.sender].bet > 0) {
             revert Table__BetAlreadyPlaced();
         }
+
+        s_playerToState[msg.sender].bet = _amount;
+        s_betTotal += _amount;
     
         _;
-
-        Pit(payable(owner())).addBets(_amount);
 
         for (uint8 i = 0; i < s_players.length; i++) {
             address playerAddress = s_players[i];
@@ -199,14 +185,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         return minBalance;
     }
 
-    function lock() external onlyOwner {
-        s_locked = true;
-    }
-
-    function unlock() external onlyOwner {
-        s_locked = false;
-    }
-
     function claimRefund() external {
         uint256 amount = s_playerToState[msg.sender].refund;
 
@@ -229,6 +207,26 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function startGame() internal {
+        Pit pit = Pit(payable(owner()));
+        (
+            uint256 balance, 
+            uint256 maxPayout
+        ) = pit.s_managerToTokenToState(s_manager, s_token);
+        uint256 bjPayoutFactor = s_rules.sixToFive ? 5 : 4;
+
+        uint256 newMaxPayout = maxPayout;
+
+        if (s_rules.allowDoubleAfterSplit) {
+            newMaxPayout += s_betTotal * 2 * s_rules.maxResplitHands * 6 / bjPayoutFactor;
+        } else {
+            newMaxPayout += s_betTotal * (s_rules.maxResplitHands + 1) * 6 / bjPayoutFactor;
+        }
+
+        if (newMaxPayout < balance) {
+            // TODO: restore lock logic
+            return;
+        }
+
         initialDeal();
         s_gameStatus = GameStatus.PlayerTurn;
         emit GameStarted();
@@ -246,7 +244,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             delete s_playerToState[player].hand;
         }
 
-        Pit(payable(owner())).removeBets(betsToRemove);
         s_gameStatus = GameStatus.Inactive;
     }
 
@@ -270,7 +267,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_players.push(msg.sender);
     }
 
-    function leave() external whenInactiveOrBet whenUnlocked {
+    function leave() external whenInactiveOrBet {
         uint8 seat = s_playerToState[msg.sender].seat;
 
         if (seat == 0) {
@@ -306,11 +303,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_players.pop();
     }
 
-    function setBetRange(BetRange memory _betRange) external onlyOwner whenInactive whenUnlocked {
+    function setBetRange(BetRange memory _betRange) external onlyOwner whenInactive {
         s_betRange = _betRange;
     }
 
-    function setMaxPlayers(uint8 _maxPlayers) external onlyOwner whenInactive whenUnlocked {
+    function setMaxPlayers(uint8 _maxPlayers) external onlyOwner whenInactive {
         if (_maxPlayers < (s_players.length + 1) || _maxPlayers > 7) {
             revert Table__InvalidMaxPlayers();
         }
@@ -318,7 +315,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_maxPlayers = _maxPlayers;
     }
 
-    function setToken(address _token) external onlyOwner whenInactive whenUnlocked whenEmpty {
+    function setToken(address _token) external onlyOwner whenInactive whenEmpty {
         s_token = _token;
     }
 
@@ -365,8 +362,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_dealerHand.push(drawCard());
     }
 
-    function placeBet(uint256 _amount) external whenUnlocked onlyToken nonReentrant handleBet(_amount) {
-        s_playerToState[msg.sender].bet = _amount;
+    function placeBet(uint256 _amount) external onlyToken nonReentrant handleBet(_amount) {
         bool success = IERC20(s_token).transferFrom(msg.sender, address(this), _amount);
 
         if (!success) {
@@ -374,7 +370,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function hit() external onlyCurrentPlayer whenUnlocked {
+    function hit() external onlyCurrentPlayer {
         uint8 card = drawCard();
 
         // If card drawn is ace...
@@ -383,9 +379,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         } 
     }
 
-    receive() external payable whenUnlocked onlyEth handleBet(msg.value) {
-        s_playerToState[msg.sender].bet = msg.value;
-    }
+    receive() external payable onlyEth handleBet(msg.value) {}
 
     // mapping (address => uint256) public bets
     
