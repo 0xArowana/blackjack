@@ -240,7 +240,5 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
 
     // mapping (address _dealer => mapping (uint _role => Game _game)) public currentGames
 
-    // function depositStaked() external
-
     /// @param timeout
 }

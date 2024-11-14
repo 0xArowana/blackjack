@@ -186,31 +186,20 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         refreshRandomWords();
     }
 
-    function getMinManagerBalance() internal view returns (uint256) {
-        uint256 minBalance = 0;
-
-        for (uint8 i = 0; i < s_players.length; i++) {
-            address player = s_players[i];
-            minBalance += s_playerToState[player].bet;
-        }
-
-        return minBalance;
-    }
-
-    function claimRefund() external {
+    function claimRefund() external nonReentrant {
         uint256 amount = s_playerToState[msg.sender].refund;
 
         if (amount == 0) {
             revert Table__NoRefundAvailable();
         }
 
+        s_playerToState[msg.sender].refund = 0;
+
         bool success = IERC20(s_token).transfer(msg.sender, amount);
 
         if (!success) {
             revert Table__RefundTransferFailed();
         }
-
-        s_playerToState[msg.sender].refund = 0;
     }
 
     function startBets() external onlyOwner whenInactive {
@@ -235,10 +224,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (newMaxPayout < balance) {
             s_lockTimestamp = block.timestamp;
-            return;
+        } else {
+            startGame();
         }
-
-        startGame();
     }
 
     function startGame() internal {
@@ -309,31 +297,30 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         s_playerToState[msg.sender].seat = 0;
         s_seatToPlayer[seat] = address(0);
-        removePlayer(msg.sender);
-
-        // Start game if all remaining players placed bets
-        if (s_gameStatus == GameStatus.Bet) {
-            for (uint8 i = 0; i < s_players.length; i++) {
-                address player = s_players[i];
-                if (s_playerToState[player].bet == 0) return;
-            }
-
-            finalizeBets();
-        }
-    }
-
-    function removePlayer(address _player) internal {
-        bool found = false;
+        
+        bool playerFound = false;
+        bool missingBet = false;
 
         for (uint8 i = 0; i < s_players.length; i++) {
-            if (found) {
-                s_players[i] = s_players[i + 1];
-            } else if (_player == s_players[i]) {
-                found = true;
+            address player = s_players[i];
+
+            if (playerFound) {
+                s_players[i - 1] = s_players[i];
+            } else if (msg.sender == player) {
+                playerFound = true;
+            }
+
+            if (s_playerToState[player].bet == 0 && player != msg.sender) {
+                missingBet = true;
             }
         }
 
         s_players.pop();
+
+        // Start game if all remaining players placed bets
+        if (s_gameStatus == GameStatus.Bet && !missingBet) {
+            finalizeBets();
+        }
     }
 
     function setBetRange(BetRange memory _betRange) external onlyOwner whenInactive {
