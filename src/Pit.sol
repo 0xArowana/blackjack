@@ -154,7 +154,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             revert Pit__NotTable();
         }
         
-        s_managerToTokenToState[_token][manager].maxPayout = _amount;
+        s_managerToTokenToState[manager][_token].maxPayout = _amount;
     }
 
     function requestRandomWords() external onlyTable {
