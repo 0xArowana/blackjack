@@ -98,9 +98,19 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     modifier handleDeposit(address _token, uint256 _amount) {
         _;
 
-        s_managerToTokenToState[msg.sender][_token].balance += _amount;
+        TokenState memory state = s_managerToTokenToState[msg.sender][_token];
+        uint256 newBalance = state.balance + _amount;
 
-        // TODO: Unlock locked tables if able
+        // Unlock locked tables if sufficient balance
+        if (state.balance < state.maxPayout && newBalance >= state.maxPayout) {
+            address[] memory tables = s_managerToTables[msg.sender];
+
+            for (uint256 i = 0; i < tables.length; i++) {
+                Table(payable(tables[i])).unlock();
+            }
+        }
+
+        s_managerToTokenToState[msg.sender][_token].balance = newBalance;
     }
 
     function initialize(
