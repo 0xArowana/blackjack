@@ -61,7 +61,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     event Received(address indexed sender, uint256 indexed value);
 
     modifier onlyTable {
-        if (s_tableToManager[msg.sender] != address(0)) {
+        if (s_tableToManager[msg.sender] == address(0)) {
             revert Pit__NotTable();
         }
         _;
@@ -147,12 +147,14 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         s_liquidationFee = _percentage;
     }
 
-    function setMaxPayout(uint256 _amount) external onlyTable {
-        Table table = Table(payable(msg.sender));
-        address manager = table.s_manager();
-        address token = table.s_token();
+    function setMaxPayout(uint256 _amount, address _token) external {
+        address manager = s_tableToManager[msg.sender];
+
+        if (manager == address(0)) {
+            revert Pit__NotTable();
+        }
         
-        s_managerToTokenToState[token][manager].maxPayout = _amount;
+        s_managerToTokenToState[_token][manager].maxPayout = _amount;
     }
 
     function requestRandomWords() external onlyTable {

@@ -231,7 +231,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             newMaxPayout += s_betTotal * (s_rules.maxResplitHands + 1) * 6 / bjPayoutFactor;
         }
 
-        pit.setMaxPayout(newMaxPayout);
+        pit.setMaxPayout(newMaxPayout, s_token);
 
         if (newMaxPayout < balance) {
             s_lockTimestamp = block.timestamp;
