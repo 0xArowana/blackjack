@@ -38,7 +38,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     mapping(uint8 => address) public s_seatToWaitingPlayer;
     BetRange s_betRange;
     Rules s_rules;
-    uint8 internal s_maxPlayers;
+    uint8 s_maxPlayers;
     address public s_token;
     address public s_manager;
     uint256[] internal s_randomWords;
