@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {TableHarness} from "./util/TableHarness.sol";
+import {ERC20Mock} from "./util/ERC20Mock.sol";
 import {Table} from "../src/Table.sol";
 import {Pit} from "../src/Pit.sol";
 
@@ -10,31 +11,20 @@ contract TableTest is Test {
     Pit pit;
     TableHarness table;
 
-    address player1 = makeAddr("player1");
-    address player2 = makeAddr("player2");
-    address player3 = makeAddr("player3");
-    address player4 = makeAddr("player4");
-
     function setUp() public {
         pit = new Pit();
 
         vm.mockCall(
             address(pit),
-            abi.encodeWithSelector(Pit.requestRandomWords.selector),
+            abi.encodeWithSelector(pit.requestRandomWords.selector),
             ""
         );
 
         vm.prank(address(pit));
         table = new TableHarness();
-
-        address[] memory playerAddresses = new address[](4);
-        playerAddresses[0] = player1;
-        playerAddresses[1] = player2;
-        playerAddresses[2] = player3;
-        playerAddresses[3] = player4;
     }
 
-    function test_initialize() public {
+    function test_initialize_SetsStateVariables() public {
         address manager = vm.randomAddress();
         uint8 maxPlayers = uint8(vm.randomUint());
         Table.BetRange memory betRange = Table.BetRange(vm.randomUint(), vm.randomUint());
@@ -51,6 +41,8 @@ contract TableTest is Test {
         );
         address token = vm.randomAddress();
 
+        vm.expectCall(address(pit), abi.encodeWithSelector(pit.requestRandomWords.selector));
+
         vm.prank(address(pit));
         table.initialize(manager, maxPlayers, betRange, rules, token);
 
@@ -60,8 +52,72 @@ contract TableTest is Test {
         assertEq(keccak256(abi.encode(table.getBetRange())), keccak256(abi.encode(betRange)));
         assertEq(keccak256(abi.encode(table.getRules())), keccak256(abi.encode(rules)));
         assertEq(table.s_token(), token);
-        assertEq(table.getDrawableCards().length, 52);
-        vm.expectCall(address(pit), abi.encodeWithSelector(pit.requestRandomWords.selector));
+        assertEq(table.getDrawableCards().length, 52);   
+    }
+
+    function test_initialize_RevertsOnMultipleCalls() public {
+        Table.BetRange memory betRange;
+        Table.Rules memory rules;
+        
+        vm.startPrank(address(pit));
+        table.initialize(address(0), 0, betRange, rules, address(0));
+
+        bytes4 selector = bytes4(keccak256("InvalidInitialization()"));
+        vm.expectRevert(abi.encodeWithSelector(selector));
+        table.initialize(address(0), 0, betRange, rules, address(0));
+    }
+
+    function test_claimRefund_RevertsIfNoRefund() public {
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("Table__NoRefundAvailable()"))));
+        table.claimRefund();
+    }
+
+    function test_claimRefund_TransfersTokens() public {
+        address player = vm.randomAddress();
+        uint256 amount = vm.randomUint();
+        table.setRefund(player, amount);
+
+        ERC20Mock token = new ERC20Mock();
+        table.setTestToken(address(token));
+
+        vm.expectCall(address(token), abi.encodeCall(ERC20Mock(token).transfer, (player, amount)));
+
+        vm.prank(player);
+        table.claimRefund();
+    }
+
+    function test_claimRefund_RevertsOnReentrancy() public {
+        address player = vm.randomAddress();
+        uint256 amount = vm.randomUint();
+        table.setRefund(player, amount);
+
+        ERC20Mock token = new ERC20Mock();
+        table.setTestToken(address(token));
+
+        token.setReenterClaimRefund(true);
+
+        vm.prank(player);
+        vm.expectPartialRevert(bytes4(keccak256("ReentrancyGuardReentrantCall()")));
+        table.claimRefund();
+    }
+
+    function test_claimRefund_RevertsOnTransferFailure() public {
+        address player = vm.randomAddress();
+        uint256 amount = vm.randomUint();
+        table.setRefund(player, amount);
+
+        ERC20Mock token = new ERC20Mock();
+        table.setTestToken(address(token));
+
+        vm.mockCall(
+            address(token),
+            abi.encodeWithSelector(token.transfer.selector),
+            abi.encode(false)
+        );
+
+        vm.prank(player);
+        vm.expectPartialRevert(bytes4(keccak256("Table__RefundTransferFailed()")));
+        table.claimRefund();
     }
 
     // function test_drawCards() public {

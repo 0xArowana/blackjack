@@ -195,6 +195,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         s_playerToState[msg.sender].refund = 0;
 
+        // TODO: Handle native ETH refunds
+
         bool success = IERC20(s_token).transfer(msg.sender, amount);
 
         if (!success) {

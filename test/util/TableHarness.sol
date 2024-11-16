@@ -19,4 +19,12 @@ contract TableHarness is Table {
     function getDrawableCards() external view returns (uint8[] memory) {
         return s_drawableCards;
     }
+
+    function setRefund(address _player, uint256 _amount) external {
+        s_playerToState[_player].refund = _amount;
+    }
+
+    function setTestToken(address _token) external {
+        s_token = _token;
+    }
 }
