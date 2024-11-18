@@ -15,9 +15,9 @@ contract ERC20Mock is IERC20 {
     }
 
     function transfer(address to, uint256 value) public returns (bool) {
-        if (s_reenterClaimRefund) {
-            Table(payable(msg.sender)).claimRefund();
-            s_reenterClaimRefund = false;
+        if (s_reenterCashOut) {
+            Table(payable(msg.sender)).cashOut();
+            s_reenterCashOut = false;
         }
         return true;
     }
@@ -30,8 +30,8 @@ contract ERC20Mock is IERC20 {
         return true;
     }
 
-    bool s_reenterClaimRefund;
-    function setReenterClaimRefund(bool _reenter) external {
-        s_reenterClaimRefund = _reenter;
+    bool s_reenterCashOut;
+    function setReenterCashOut(bool _reenter) external {
+        s_reenterCashOut = _reenter;
     }
 }

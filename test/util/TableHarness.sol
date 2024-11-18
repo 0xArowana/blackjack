@@ -12,6 +12,10 @@ contract TableHarness is Table {
         return s_betRange;
     }
 
+    function getGameStatus() external view returns (GameStatus) {
+        return s_gameStatus;
+    }
+
     function getRules() external view returns (Rules memory) {
         return s_rules;
     }
@@ -20,11 +24,19 @@ contract TableHarness is Table {
         return s_drawableCards;
     }
 
-    function setRefund(address _player, uint256 _amount) external {
-        s_playerToState[_player].refund = _amount;
+    function setManager(address _manager) external {
+        s_manager = _manager;
+    }
+
+    function setBalance(address _player, uint256 _amount) external {
+        s_playerToState[_player].balance = _amount;
     }
 
     function setTestToken(address _token) external {
         s_token = _token;
+    }
+
+    function setGameStatus(GameStatus _status) external {
+        s_gameStatus = _status;
     }
 }

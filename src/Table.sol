@@ -23,12 +23,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__BettingInProgress();
     error Table__GameInProgress();
     error Table__LiquidationGracePeriod();
-    error Table__NoRefundAvailable();
+    error Table__NoBalanceAvailable();
     error Table__NotBetStatus();
     error Table__NotCurrentPlayer();
     error Table__NotInactiveStatus();
+    error Table__NotManager();
     error Table__NotPlayerTurnStatus();
-    error Table__RefundTransferFailed();
+    error Table__CashOutTransferFailed();
     error Table__UsesEth();
     error Table__UsesToken();
 
@@ -52,7 +53,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     uint8[] internal s_dealerHand;
     address internal s_currentPlayer;
 
-    enum DoubleOn {
+    enum DoubleRule {
         FirstTwoCards,
         NineToEleven,
         TenToEleven
@@ -62,7 +63,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint8 deckCount;
         bool dealerHitOnSoft17;
         bool allowDoubleAfterSplit;
-        DoubleOn doubleOn;
+        DoubleRule doubleRule;
         uint8 maxResplitHands;
         bool allowResplitAces;
         bool allowHitSplitAces;
@@ -79,7 +80,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint8 seat;
         uint256 bet;
         uint8[] hand;
-        uint256 refund;
+        uint256 balance;
     }
 
     enum GameStatus {
@@ -91,6 +92,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     event BetsStarted();
     event GameStarted();
+
+    modifier onlyManager {
+        if (msg.sender != address(s_manager)) {
+            revert Table__NotManager();
+        }
+        _;
+    }
 
     modifier onlyCurrentPlayer {
         if (s_gameStatus != GameStatus.PlayerTurn) {
@@ -186,25 +194,29 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         refreshRandomWords();
     }
 
-    function claimRefund() external nonReentrant {
-        uint256 amount = s_playerToState[msg.sender].refund;
+    function cashOut() external nonReentrant {
+        uint256 amount = s_playerToState[msg.sender].balance;
 
         if (amount == 0) {
-            revert Table__NoRefundAvailable();
+            revert Table__NoBalanceAvailable();
         }
 
-        s_playerToState[msg.sender].refund = 0;
+        s_playerToState[msg.sender].balance = 0;
 
-        // TODO: Handle native ETH refunds
+        bool success;
 
-        bool success = IERC20(s_token).transfer(msg.sender, amount);
+        if (s_token == address(0)) {
+            (success,) = msg.sender.call{value: amount}("");
+        } else {
+            success = IERC20(s_token).transfer(msg.sender, amount);
+        }
 
         if (!success) {
-            revert Table__RefundTransferFailed();
+            revert Table__CashOutTransferFailed();
         }
     }
 
-    function startBets() external onlyOwner whenInactive {
+    function startBets() external onlyManager whenInactive {
         s_gameStatus = GameStatus.Bet;
         emit BetsStarted();
     }
@@ -251,7 +263,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             address player = s_players[i];
             uint256 bet = s_playerToState[player].bet;
             betsToRemove += bet;
-            s_playerToState[player].refund = bet;
+            s_playerToState[player].balance += bet;
             s_playerToState[player].bet = 0;
             delete s_playerToState[player].hand;
         }
@@ -293,7 +305,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint256 bet = s_playerToState[msg.sender].bet;
 
         if (bet > 0) {
-            s_playerToState[msg.sender].refund = bet;
+            s_playerToState[msg.sender].balance += bet;
             s_betTotal -= bet;
         }
 

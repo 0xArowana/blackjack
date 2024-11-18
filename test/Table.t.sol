@@ -32,7 +32,7 @@ contract TableTest is Test {
             uint8(vm.randomUint()),
             vm.randomBool(),
             vm.randomBool(),
-            Table.DoubleOn(vm.randomUint() % 3),
+            Table.DoubleRule(vm.randomUint() % 3),
             uint8(vm.randomUint()),
             vm.randomBool(),
             vm.randomBool(),
@@ -67,15 +67,15 @@ contract TableTest is Test {
         table.initialize(address(0), 0, betRange, rules, address(0));
     }
 
-    function test_claimRefund_RevertsIfNoRefund() public {
-        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("Table__NoRefundAvailable()"))));
-        table.claimRefund();
+    function test_cashOut_RevertsIfNoBalance() public {
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("Table__NoBalanceAvailable()"))));
+        table.cashOut();
     }
 
-    function test_claimRefund_TransfersTokens() public {
+    function test_cashOut_TransfersTokensIfERC20() public {
         address player = vm.randomAddress();
         uint256 amount = vm.randomUint();
-        table.setRefund(player, amount);
+        table.setBalance(player, amount);
 
         ERC20Mock token = new ERC20Mock();
         table.setTestToken(address(token));
@@ -83,28 +83,13 @@ contract TableTest is Test {
         vm.expectCall(address(token), abi.encodeCall(ERC20Mock(token).transfer, (player, amount)));
 
         vm.prank(player);
-        table.claimRefund();
+        table.cashOut();
     }
 
-    function test_claimRefund_RevertsOnReentrancy() public {
+    function test_cashOut_RevertsOnERC20TransferFailure() public {
         address player = vm.randomAddress();
         uint256 amount = vm.randomUint();
-        table.setRefund(player, amount);
-
-        ERC20Mock token = new ERC20Mock();
-        table.setTestToken(address(token));
-
-        token.setReenterClaimRefund(true);
-
-        vm.prank(player);
-        vm.expectPartialRevert(bytes4(keccak256("ReentrancyGuardReentrantCall()")));
-        table.claimRefund();
-    }
-
-    function test_claimRefund_RevertsOnTransferFailure() public {
-        address player = vm.randomAddress();
-        uint256 amount = vm.randomUint();
-        table.setRefund(player, amount);
+        table.setBalance(player, amount);
 
         ERC20Mock token = new ERC20Mock();
         table.setTestToken(address(token));
@@ -116,8 +101,75 @@ contract TableTest is Test {
         );
 
         vm.prank(player);
-        vm.expectPartialRevert(bytes4(keccak256("Table__RefundTransferFailed()")));
-        table.claimRefund();
+        vm.expectRevert(bytes4(keccak256("Table__CashOutTransferFailed()")));
+        table.cashOut();
+    }
+
+    function test_cashOut_TransfersETHIfNotERC20() public {
+        address player = vm.randomAddress();
+        uint256 amount = vm.randomUint();
+        table.setBalance(player, amount);
+
+        vm.deal(address(table), amount);
+        vm.prank(player);
+        table.cashOut();
+
+        assertEq(player.balance, amount);
+    }
+
+    function test_cashOut_RevertsOnETHTransferFailure() public {
+        address player = vm.randomAddress();
+        uint256 amount = vm.randomUint();
+        table.setBalance(player, amount);
+
+        vm.prank(player);
+        vm.expectRevert(bytes4(keccak256("Table__CashOutTransferFailed()")));
+        table.cashOut();
+    }
+
+    function test_cashOut_RevertsOnReentrancy() public {
+        address player = vm.randomAddress();
+        uint256 amount = vm.randomUint();
+        table.setBalance(player, amount);
+
+        ERC20Mock token = new ERC20Mock();
+        table.setTestToken(address(token));
+
+        token.setReenterCashOut(true);
+
+        vm.prank(player);
+        vm.expectRevert(bytes4(keccak256("ReentrancyGuardReentrantCall()")));
+        table.cashOut();
+    }
+
+    function test_startBets_UpdatesGameStatus() public {
+        address manager = vm.randomAddress();
+        table.setManager(manager);
+
+        vm.prank(manager);
+        table.startBets();
+
+        assertEq(uint(table.getGameStatus()), uint(Table.GameStatus.Bet));
+    }
+
+    function test_startBets_RevertsIfNotInactive() public {
+        table.setGameStatus(Table.GameStatus.DealerTurn);
+
+        address manager = vm.randomAddress();
+        table.setManager(manager);
+
+        vm.prank(manager);
+        vm.expectRevert(bytes4(keccak256("Table__NotInactiveStatus()")));
+        table.startBets();
+    }
+
+    function test_startBets_RevertsIfNotManager() public {
+        address manager = vm.randomAddress();
+        table.setManager(manager);
+
+        vm.prank(vm.randomAddress());
+        vm.expectRevert(bytes4(keccak256("Table__NotManager()")));
+        table.startBets();
     }
 
     // function test_drawCards() public {
