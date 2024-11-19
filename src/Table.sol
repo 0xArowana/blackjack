@@ -194,53 +194,33 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         refreshRandomWords();
     }
 
-    function cashOut() external nonReentrant {
-        uint256 amount = s_playerToState[msg.sender].balance;
+        function setBetRange(BetRange memory _betRange) external onlyOwner whenInactive {
+        s_betRange = _betRange;
+    }
 
-        if (amount == 0) {
-            revert Table__NoBalanceAvailable();
+    function setMaxPlayers(uint8 _maxPlayers) external onlyOwner whenInactive {
+        if (_maxPlayers < (s_players.length + 1) || _maxPlayers > 7) {
+            revert Table__InvalidMaxPlayers();
         }
+        
+        s_maxPlayers = _maxPlayers;
+    }
 
-        s_playerToState[msg.sender].balance = 0;
+    function setToken(address _token) external onlyOwner whenInactive whenEmpty {
+        s_token = _token;
+    }
 
-        bool success;
+    function setRandomWords(uint256[] calldata _randomWords) external onlyOwner {
+        s_randomWords = _randomWords;
+    }
 
-        if (s_token == address(0)) {
-            (success,) = msg.sender.call{value: amount}("");
-        } else {
-            success = IERC20(s_token).transfer(msg.sender, amount);
-        }
-
-        if (!success) {
-            revert Table__CashOutTransferFailed();
-        }
+    function refreshRandomWords() internal {
+        Pit(payable(owner())).requestRandomWords();
     }
 
     function startBets() external onlyManager whenInactive {
         s_gameStatus = GameStatus.Bet;
         emit BetsStarted();
-    }
-
-    function finalizeBets() internal {
-        Pit pit = Pit(payable(owner()));
-        (uint256 balance, uint256 maxPayout) = pit.s_managerToTokenToState(s_manager, s_token);
-
-        uint256 bjPayoutFactor = s_rules.sixToFive ? 5 : 4;
-        uint256 newMaxPayout = maxPayout;
-
-        if (s_rules.allowDoubleAfterSplit) {
-            newMaxPayout += s_betTotal * 2 * s_rules.maxResplitHands * 6 / bjPayoutFactor;
-        } else {
-            newMaxPayout += s_betTotal * (s_rules.maxResplitHands + 1) * 6 / bjPayoutFactor;
-        }
-
-        pit.setMaxPayout(newMaxPayout, s_token);
-
-        if (newMaxPayout > balance) {
-            s_lockTimestamp = block.timestamp;
-        } else {
-            startGame();
-        }
     }
 
     function startGame() internal {
@@ -269,6 +249,15 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
 
         s_gameStatus = GameStatus.Inactive;
+    }
+
+    function resetDrawableCards() internal {
+        delete s_drawableCards;
+
+        for (uint8 i = 1; i < 53; i++) {
+            s_cardToDrawCount[i] = 0;
+            s_drawableCards.push(i);
+        }
     }
 
     function sit(uint8 _seat) external {
@@ -337,36 +326,55 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function setBetRange(BetRange memory _betRange) external onlyOwner whenInactive {
-        s_betRange = _betRange;
-    }
+    function placeBet(uint256 _amount) external onlyToken nonReentrant handleBet(_amount) {
+        bool success = IERC20(s_token).transferFrom(msg.sender, address(this), _amount);
 
-    function setMaxPlayers(uint8 _maxPlayers) external onlyOwner whenInactive {
-        if (_maxPlayers < (s_players.length + 1) || _maxPlayers > 7) {
-            revert Table__InvalidMaxPlayers();
+        if (!success) {
+            revert Table__BetTransferFailed();
         }
-        
-        s_maxPlayers = _maxPlayers;
     }
 
-    function setToken(address _token) external onlyOwner whenInactive whenEmpty {
-        s_token = _token;
+    function finalizeBets() internal {
+        Pit pit = Pit(payable(owner()));
+        (uint256 balance, uint256 maxPayout) = pit.s_managerToTokenToState(s_manager, s_token);
+
+        uint256 bjPayoutFactor = s_rules.sixToFive ? 5 : 4;
+        uint256 newMaxPayout = maxPayout;
+
+        if (s_rules.allowDoubleAfterSplit) {
+            newMaxPayout += s_betTotal * 2 * s_rules.maxResplitHands * 6 / bjPayoutFactor;
+        } else {
+            newMaxPayout += s_betTotal * (s_rules.maxResplitHands + 1) * 6 / bjPayoutFactor;
+        }
+
+        pit.setMaxPayout(newMaxPayout, s_token);
+
+        if (newMaxPayout > balance) {
+            s_lockTimestamp = block.timestamp;
+        } else {
+            startGame();
+        }
     }
 
-    function setRandomWords(uint256[] calldata _randomWords) external onlyOwner {
-        s_randomWords = _randomWords;
-    }
+    function cashOut() external nonReentrant {
+        uint256 amount = s_playerToState[msg.sender].balance;
 
-    function refreshRandomWords() internal {
-        Pit(payable(owner())).requestRandomWords();
-    }
+        if (amount == 0) {
+            revert Table__NoBalanceAvailable();
+        }
 
-    function resetDrawableCards() internal {
-        delete s_drawableCards;
+        s_playerToState[msg.sender].balance = 0;
 
-        for (uint8 i = 1; i < 53; i++) {
-            s_cardToDrawCount[i] = 0;
-            s_drawableCards.push(i);
+        bool success;
+
+        if (s_token == address(0)) {
+            (success,) = msg.sender.call{value: amount}("");
+        } else {
+            success = IERC20(s_token).transfer(msg.sender, amount);
+        }
+
+        if (!success) {
+            revert Table__CashOutTransferFailed();
         }
     }
 
@@ -418,21 +426,48 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_dealerHand.push(drawCard());
     }
 
-    function placeBet(uint256 _amount) external onlyToken nonReentrant handleBet(_amount) {
-        bool success = IERC20(s_token).transferFrom(msg.sender, address(this), _amount);
-
-        if (!success) {
-            revert Table__BetTransferFailed();
-        }
-    }
-
     function hit() external onlyCurrentPlayer {
         uint8 card = drawCard();
 
         // If card drawn is ace...
         if (card < 4) {
 
-        } 
+        }
+    }
+
+    function split() external onlyCurrentPlayer {
+
+    }
+
+    function double() external onlyCurrentPlayer {
+        
+    }
+
+    function stand() external onlyCurrentPlayer {
+        nextTurn();
+    }
+
+    function nextTurn() internal {
+        uint playerIndex;
+
+        for (uint i = 0; i < s_players.length; i++) {
+            if (s_players[i] == s_currentPlayer) {
+                playerIndex = i;
+                break;
+            } 
+        }
+
+        if (playerIndex == s_players.length) {
+            s_gameStatus = GameStatus.DealerTurn;
+            s_currentPlayer = address(0);
+            dealerPlay();
+        } else {
+            s_currentPlayer = s_players[playerIndex + 1];
+        }
+    }
+
+    function dealerPlay() internal {
+
     }
 
     receive() external payable onlyEth handleBet(msg.value) {}
