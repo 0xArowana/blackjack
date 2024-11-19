@@ -39,4 +39,16 @@ contract TableHarness is Table {
     function setGameStatus(GameStatus _status) external {
         s_gameStatus = _status;
     }
+
+    function setRules(Rules memory _rules) external {
+        s_rules = _rules;
+    }
+
+    function setBetTotal(uint256 _betTotal) external {
+        s_betTotal = _betTotal;
+    }
+
+    function callFinalizeBets() external {
+        finalizeBets();
+    }
 }

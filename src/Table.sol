@@ -236,7 +236,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         pit.setMaxPayout(newMaxPayout, s_token);
 
-        if (newMaxPayout < balance) {
+        if (newMaxPayout > balance) {
             s_lockTimestamp = block.timestamp;
         } else {
             startGame();
@@ -311,7 +311,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         s_playerToState[msg.sender].seat = 0;
         s_seatToPlayer[seat] = address(0);
-        
+
         bool playerFound = false;
         bool missingBet = false;
 
@@ -332,7 +332,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_players.pop();
 
         // Start game if all remaining players placed bets
-        if (s_gameStatus == GameStatus.Bet && !missingBet) {
+        if (s_players.length > 0 && s_gameStatus == GameStatus.Bet && !missingBet) {
             finalizeBets();
         }
     }

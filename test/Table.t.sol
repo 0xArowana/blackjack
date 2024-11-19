@@ -3,16 +3,17 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {TableHarness} from "./util/TableHarness.sol";
+import {PitHarness} from "./util/PitHarness.sol";
 import {ERC20Mock} from "./util/ERC20Mock.sol";
 import {Table} from "../src/Table.sol";
 import {Pit} from "../src/Pit.sol";
 
 contract TableTest is Test {
-    Pit pit;
+    PitHarness pit;
     TableHarness table;
 
     function setUp() public {
-        pit = new Pit();
+        pit = new PitHarness();
 
         vm.mockCall(
             address(pit),
@@ -24,6 +25,7 @@ contract TableTest is Test {
         table = new TableHarness();
     }
 
+    // initialize
     function test_initialize_SetsStateVariables() public {
         address manager = vm.randomAddress();
         uint8 maxPlayers = uint8(vm.randomUint());
@@ -67,6 +69,7 @@ contract TableTest is Test {
         table.initialize(address(0), 0, betRange, rules, address(0));
     }
 
+    // cashOut
     function test_cashOut_RevertsIfNoBalance() public {
         vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("Table__NoBalanceAvailable()"))));
         table.cashOut();
@@ -142,6 +145,7 @@ contract TableTest is Test {
         table.cashOut();
     }
 
+    // startBets
     function test_startBets_UpdatesGameStatus() public {
         address manager = vm.randomAddress();
         table.setManager(manager);
@@ -170,6 +174,81 @@ contract TableTest is Test {
         vm.prank(vm.randomAddress());
         vm.expectRevert(bytes4(keccak256("Table__NotManager()")));
         table.startBets();
+    }
+
+    function setupFinalizeBets() internal returns (Table.Rules memory, address, address) {
+        address manager = vm.randomAddress();
+        pit.setTableToManager(address(table), manager);
+
+        Table.Rules memory rules;
+        Table.BetRange memory betRange;
+        vm.prank(address(pit));
+        table.initialize(manager, 0, betRange, rules, address(0));
+        address token = vm.randomAddress();
+        table.setTestToken(token);
+        
+        uint256[] memory words = new uint256[](10);
+        for (uint256 i = 0; i < 10; i++) {
+            words[i] = i;
+        }
+        vm.prank(address(pit));
+        table.setRandomWords(words);
+
+        return (rules, token, manager);
+    }
+
+    // finalizeBets
+    function test_finalizeBets_SetsMaxPayout() public {
+        (Table.Rules memory rules, address token,) = setupFinalizeBets();
+
+        table.setBetTotal(100);
+        
+        rules.maxResplitHands = 3;
+        table.setRules(rules);
+
+        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (600, token)));
+        table.callFinalizeBets();
+
+        rules.sixToFive = true;
+        table.setRules(rules);
+
+        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (1080, token)));
+        table.callFinalizeBets();
+
+        rules.allowDoubleAfterSplit = true;
+        table.setRules(rules);
+
+        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (1800, token)));
+        table.callFinalizeBets();
+
+        rules.maxResplitHands = 4;
+        rules.sixToFive = false;
+        table.setRules(rules);
+
+        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (3000, token)));
+        table.callFinalizeBets();
+    }
+
+    function test_finalizeBets_LocksIfInsufficientBalance() public {
+        setupFinalizeBets();
+
+        table.setBetTotal(100);  
+
+        table.callFinalizeBets();
+        assertEq(table.s_lockTimestamp(), block.timestamp);
+        assertEq(uint(table.getGameStatus()), 0);
+    }
+
+    function test_finalizeBets_StartsGameIfSufficientBalance() public {
+        (, address token, address manager) = setupFinalizeBets();
+
+        Pit.TokenState memory state;
+        state.balance = 500;
+        pit.setManagerToTokenToState(manager, token, state);   
+
+        table.callFinalizeBets();
+        assertEq(table.s_lockTimestamp(), 0);
+        assertEq(uint(table.getGameStatus()), uint(Table.GameStatus.PlayerTurn));
     }
 
     // function test_drawCards() public {
