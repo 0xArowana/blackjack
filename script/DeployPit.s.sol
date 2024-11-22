@@ -8,8 +8,7 @@ import {ConfigHelper} from "./ConfigHelper.s.sol";
 import {Aave} from "./Interactions.s.sol";
 
 contract DeployPit is Script {
-    uint256 constant LIQUIDATION_GRACE_PERIOD = 60;
-    uint256 constant LIQUIDATION_FEE = 100;
+    uint256 constant PLAYER_TIMEOUT = 60;
 
     function run() external returns (address) {
         ConfigHelper configHelper = new ConfigHelper();
@@ -22,8 +21,7 @@ contract DeployPit is Script {
         proxy.initialize(
             configHelper.getTokens(),
             aave.getPool(configHelper.getPoolAddressesProvider()),
-            LIQUIDATION_GRACE_PERIOD,
-            LIQUIDATION_FEE,
+            PLAYER_TIMEOUT,
             configHelper.getVrfConfig()
         );
 

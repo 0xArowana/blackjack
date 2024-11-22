@@ -16,7 +16,6 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     error Pit__DepositTransferFailed();
     error Pit__InsufficientBalance();
     error Pit__NotApprovedToken();
-    error Pit__NotLiquidatable();
     error Pit__NotManager();
     error Pit__NotTable();
     error Pit__VrfRequestNotFound();
@@ -25,13 +24,10 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     error Pit__InvalidDeckCount();
     error Pit__InvalidMaxResplitHands();
 
-    uint256 public constant LIQUIDATION_FEE_PRECISION = 10000;
-
     // Config
     address[] private s_tokens;
     address s_pool;
-    uint256 public s_liquidationGracePeriod;
-    uint256 public s_liquidationFee;
+    uint256 public s_playerTimeout;
 
     // Chainlink VRF
     VrfConfig internal s_vrfConfig;
@@ -116,8 +112,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     function initialize(
         address[] memory _tokens,
         address _pool,
-        uint256 _liquidationGracePeriod,
-        uint256 _liquidationFee,
+        uint256 _playerTimeout,
         VrfConfig memory _vrfConfig
     ) public initializer {
         __UUPSUpgradeable_init();
@@ -126,8 +121,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         
         s_tokens = _tokens;
         s_pool = _pool;
-        s_liquidationGracePeriod = _liquidationGracePeriod;
-        s_liquidationFee = _liquidationFee;
+        s_playerTimeout = _playerTimeout;
         s_vrfConfig = _vrfConfig;
         
         s_tableImplementation = address(new Table());
@@ -139,12 +133,8 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         s_tokens = _tokens;
     }
 
-    function setLiquidationGracePeriod(uint256 _seconds) external onlyOwner {
-        s_liquidationGracePeriod = _seconds;
-    }
-
-    function setLiquidationFee(uint256 _percentage) external onlyOwner {
-        s_liquidationFee = _percentage;
+    function setPlayerTimeout(uint256 _seconds) external onlyOwner {
+        s_playerTimeout = _seconds;
     }
 
     function setMaxPayout(uint256 _amount, address _token) external {
@@ -239,6 +229,4 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     }
 
     // mapping (address _dealer => mapping (uint _role => Game _game)) public currentGames
-
-    /// @param timeout
 }

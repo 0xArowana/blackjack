@@ -25,6 +25,27 @@ contract TableTest is Test {
         table = new TableHarness();
     }
 
+    function fullSetup() internal returns (Table.Rules memory, address, address) {
+        address manager = vm.randomAddress();
+        pit.setTableToManager(address(table), manager);
+
+        Table.Rules memory rules;
+        Table.BetRange memory betRange;
+        vm.prank(address(pit));
+        table.initialize(manager, 0, betRange, rules, address(0));
+        address token = vm.randomAddress();
+        table.setTestToken(token);
+        
+        uint256[] memory words = new uint256[](10);
+        for (uint256 i = 0; i < 10; i++) {
+            words[i] = vm.randomUint();
+        }
+        vm.prank(address(pit));
+        table.setRandomWords(words);
+
+        return (rules, token, manager);
+    }
+
     // initialize
     function test_initialize_SetsStateVariables() public {
         address manager = vm.randomAddress();
@@ -176,61 +197,40 @@ contract TableTest is Test {
         table.startBets();
     }
 
-    function setupFinalizeBets() internal returns (Table.Rules memory, address, address) {
-        address manager = vm.randomAddress();
-        pit.setTableToManager(address(table), manager);
-
-        Table.Rules memory rules;
-        Table.BetRange memory betRange;
-        vm.prank(address(pit));
-        table.initialize(manager, 0, betRange, rules, address(0));
-        address token = vm.randomAddress();
-        table.setTestToken(token);
-        
-        uint256[] memory words = new uint256[](10);
-        for (uint256 i = 0; i < 10; i++) {
-            words[i] = i;
-        }
-        vm.prank(address(pit));
-        table.setRandomWords(words);
-
-        return (rules, token, manager);
-    }
-
     // finalizeBets
     function test_finalizeBets_SetsMaxPayout() public {
-        (Table.Rules memory rules, address token,) = setupFinalizeBets();
+        (Table.Rules memory rules, address token,) = fullSetup();
 
-        table.setBetTotal(100);
+        table.setBetTotal(789);
         
         rules.maxResplitHands = 3;
         table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (600, token)));
+        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (4734, token)));
         table.callFinalizeBets();
 
         rules.sixToFive = true;
         table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (1080, token)));
+        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (8522, token)));
         table.callFinalizeBets();
 
         rules.allowDoubleAfterSplit = true;
         table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (1800, token)));
+        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (14203, token)));
         table.callFinalizeBets();
 
         rules.maxResplitHands = 4;
         rules.sixToFive = false;
         table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (3000, token)));
+        vm.expectCall(address(pit), abi.encodeCall(pit.setMaxPayout, (23671, token)));
         table.callFinalizeBets();
     }
 
     function test_finalizeBets_LocksIfInsufficientBalance() public {
-        setupFinalizeBets();
+        fullSetup();
 
         table.setBetTotal(100);  
 
@@ -240,7 +240,7 @@ contract TableTest is Test {
     }
 
     function test_finalizeBets_StartsGameIfSufficientBalance() public {
-        (, address token, address manager) = setupFinalizeBets();
+        (, address token, address manager) = fullSetup();
 
         Pit.TokenState memory state;
         state.balance = 500;
@@ -249,6 +249,18 @@ contract TableTest is Test {
         table.callFinalizeBets();
         assertEq(table.s_lockTimestamp(), 0);
         assertEq(uint(table.getGameStatus()), uint(Table.GameStatus.PlayerTurn));
+    }
+
+    function test_hit() public {
+        fullSetup();
+
+        table.setGameStatus(Table.GameStatus.PlayerTurn);
+
+        address player = vm.randomAddress();
+        table.setCurrentPlayer(player);
+
+        vm.prank(player);
+        table.hit();
     }
 
     // function test_drawCards() public {

@@ -48,6 +48,10 @@ contract TableHarness is Table {
         s_betTotal = _betTotal;
     }
 
+    function setCurrentPlayer(address _player) external {
+        s_currentPlayer = _player;
+    }
+
     function callFinalizeBets() external {
         finalizeBets();
     }
