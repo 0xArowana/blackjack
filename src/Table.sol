@@ -54,7 +54,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     bool s_continuousPlay;    
     
     GameStatus internal s_gameStatus;
-    uint8[] internal s_dealerHand;
+    Hand internal s_dealerHand;
     address internal s_currentPlayer;
 
     enum DoubleRule {
@@ -93,6 +93,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint8[] cards;
         uint8 value;
         HandStatus status;
+        bool doubled;
     }
 
     enum HandStatus {
@@ -201,21 +202,18 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     function startGame() internal {
         for (uint8 i = 0; i < s_players.length; i++) {
-            Hand memory hand;
-            uint8[] memory cards = new uint8[](2);
+            address player = s_players[i];
+            Hand storage hand = s_playerToState[player].hands[0];
 
-            for (uint256 j = 0; j < 2; j++) {
-                uint8 card = drawCard();
-                cards[j] = card;
-                hand.value += getCardValue(card);
-            }
-
-            hand.cards = cards;
-            s_playerToState[s_players[i]].hands = [hand];
+            uint8 card1 = drawCard();
+            uint8 card2 = drawCard();
+            hand.cards = [card1, card2];
+            hand.value = getCardValue(card1) + getCardValue(card2);
         }
 
         uint8 dealerCard = drawCard();
-        s_dealerHand.push(dealerCard);
+        s_dealerHand.cards = [dealerCard];
+        s_dealerHand.value = getCardValue(dealerCard);
 
         uint8 value = getCardValue(dealerCard);
 
@@ -232,21 +230,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             s_lockTimestamp = 0;
             startGame();
         }
-    }
-
-    function resetGame() external onlyOwner {
-        uint256 betsToRemove = 0;
-
-        for (uint8 i = 0; i < s_players.length; i++) {
-            address player = s_players[i];
-            uint256 bet = s_playerToState[player].bet;
-            betsToRemove += bet;
-            s_playerToState[player].balance += bet;
-            s_playerToState[player].bet = 0;
-            delete s_playerToState[player].hands;
-        }
-
-        s_gameStatus = GameStatus.Inactive;
     }
 
     function resetDrawableCards() internal {
@@ -344,8 +327,10 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             revert Table__BetExceedsMax();
         }
 
-        s_playerToState[msg.sender].bet = amount;
-        s_playerToState[msg.sender].initialBet = amount;
+        PlayerState storage playerState = s_playerToState[msg.sender];
+        playerState.bet = amount;
+        playerState.initialBet = amount;
+
         s_betTotal += amount;
 
         if (s_token != address(0)) {
@@ -444,44 +429,37 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         return card;
     }
 
-    function getCardValue(uint8 _card) internal returns (uint8) {
+    function getCardValue(uint8 _card) internal pure returns (uint8) {
         return uint8(Math.min(Math.ceilDiv(_card, 4), 10));
     }
 
-    function getActiveHandIndex() internal returns (uint256) {
-        Hand[] memory hands = s_playerToState[msg.sender].hands;
+    function addCardToHand(Hand storage _hand) internal {
+        uint8 card = drawCard(); 
+        _hand.cards.push(card);
+        _hand.value += getCardValue(card);
+    }
 
-        for (uint i = 0; i < hands.length; i++) {
+    function getActiveHand() internal view returns (Hand storage, uint256) {
+        Hand[] storage hands = s_playerToState[msg.sender].hands;
+
+        for (uint256 i = 0; i < hands.length; i++) {
             if (hands[i].status == HandStatus.Active) {
-                return i;
+                return (hands[i], i);
             }
         }
 
         revert Table__NoActiveHand();
     }
 
-    function hit() external onlyCurrentPlayer {
-        uint8 card = drawCard();
-        uint256 handIndex = getActiveHandIndex();
-        Hand memory hand = s_playerToState[msg.sender].hands[handIndex];
-        hand.cards.push(card);
-        hand.value += getCardValue(card);
-
-        if (hand.value > 21) {
-            nextTurn();
-            hand.status = HandStatus.Bust;
-        }
-
-        s_playerToState[msg.sender].hands[handIndex] = hand;
-    }
-
     function split() payable external onlyCurrentPlayer nonReentrant {
+        if (s_token != address(0) && msg.value > 0) {
+            revert Table__EthSentForTokenBet();
+        }
         if (s_playerToState[msg.sender].hands.length == s_rules.maxResplitHands) {
             revert Table__MaxResplitHandsReached();
         }
         
-        uint256 handIndex = getActiveHandIndex();
-        Hand memory hand = s_playerToState[msg.sender].hands[handIndex];
+        (Hand storage hand,) = getActiveHand();
 
         if (hand.cards.length > 2) {
             revert Table__CannotSplitAfterHit();
@@ -494,11 +472,38 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         if (cardValue != getCardValue(card2)) {
             revert Table__CannotSplitOnDifferentCards();
         }
+
+        increaseBet();
+
+        addCardToHand(hand);
+        hand.value -= cardValue;
+
+        Hand memory newHand;
+        newHand.value = cardValue;
+        Hand[] storage hands = s_playerToState[msg.sender].hands;
+        hands.push(newHand);
+        hands[hands.length - 1].cards.push(card2);
+    }
+
+    function double() payable external onlyCurrentPlayer nonReentrant {
         if (s_token != address(0) && msg.value > 0) {
             revert Table__EthSentForTokenBet();
         }
 
+        (Hand storage hand,) = getActiveHand();
+
+        if (hand.cards.length > 2) {
+            revert Table__CannotDoubleAfterHit();
+        }
+
+        hand.doubled = true;
+        increaseBet();
+    }
+
+    function increaseBet() internal {
         uint256 betAmount = s_playerToState[msg.sender].initialBet;
+        s_playerToState[msg.sender].bet += betAmount;
+        s_betTotal += betAmount;
 
         if (s_token == address(0)) {
             if (msg.value < betAmount) {
@@ -507,56 +512,47 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             if (msg.value > betAmount) {
                 revert Table__BetExceedsMax();
             }
-        }
-
-        s_playerToState[msg.sender].bet += betAmount;
-        s_betTotal += betAmount;
-
-        if (s_token != address(0)) {
+        } else {
             bool success = IERC20(s_token).transferFrom(msg.sender, address(this), betAmount);
 
             if (!success) {
                 revert Table__BetTransferFailed();
             }
         }
-
-        Hand[] memory newHands = s_playerToState[msg.sender].hands;
-
-        uint8[] memory newHandCards;
-        newHandCards.push(card2);
-        Hand memory newHand = Hand(newHandCards, cardValue, HandStatus.Active);
-        newHands.push(newHand);
-
-        Hand memory activeHand = newHands[handIndex];
-        activeHand.cards.pop();
-        activeHand.value -= cardValue;
-
-        uint8 newCard = drawCard();
-        activeHand.cards.push(newCard);
-        activeHand.value += getCardValue(newCard);
-
-        newHands[handIndex] = activeHand;
-        s_playerToState[msg.sender].hands = newHands;
     }
 
-    function double() external onlyCurrentPlayer {
-        Hand memory hand = getActiveHandIndex();
+    function hit() external onlyCurrentPlayer {
+        (Hand storage hand, uint256 index) = getActiveHand();
+        addCardToHand(hand);
 
-        if (hand.cards > 2) {
-            revert Table__CannotDoubleAfterHit();
+        if (hand.value > 21) {
+            finishHand(index, HandStatus.Bust);
+        } else if (hand.doubled) {
+            finishHand(index, HandStatus.Stand);
         }
     }
 
     function stand() external onlyCurrentPlayer {
-        // TODO: set status to stand and check if more split hands to play
+        (, uint256 index) = getActiveHand();
+        finishHand(index, HandStatus.Stand);
+    }
 
-        nextTurn();
+    function finishHand(uint256 _index, HandStatus _status) internal {
+        Hand[] storage hands = s_playerToState[msg.sender].hands;
+        hands[_index].status = _status;
+
+        if (_index == hands.length - 1) {
+            nextTurn();
+        } else {
+            Hand storage nextHand = hands[_index + 1];
+            addCardToHand(nextHand);
+        }
     }
 
     function nextTurn() internal {
-        uint playerIndex;
+        uint256 playerIndex;
 
-        for (uint i = 0; i < s_players.length; i++) {
+        for (uint256 i = 0; i < s_players.length; i++) {
             if (s_players[i] == s_currentPlayer) {
                 playerIndex = i;
                 break;

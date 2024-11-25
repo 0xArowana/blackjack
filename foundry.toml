@@ -8,5 +8,6 @@ remappings = [
     "@chainlink/contracts=lib/chainlink/contracts",
     "@aave/contracts=lib/aave-v3-origin/src/core/contracts"
 ]
+ignored_warnings_from = ["test/util"]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

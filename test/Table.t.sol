@@ -60,6 +60,7 @@ contract TableTest is Test {
             vm.randomBool(),
             vm.randomBool(),
             vm.randomBool(),
+            vm.randomBool(),
             vm.randomBool()
         );
         address token = vm.randomAddress();
