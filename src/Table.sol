@@ -14,6 +14,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__CannotSplitAfterHit();
     error Table__CannotSplitOnDifferentCards();
     error Table__EthSentForTokenBet();
+    error Table__HandNotNineToEleven();
+    error Table__HandNotTenToEleven();
     error Table__InsufficientBet();
     error Table__InvalidSeat();
     error Table__InvalidMaxPlayers();
@@ -58,7 +60,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     address internal s_currentPlayer;
 
     enum DoubleRule {
-        FirstTwoCards,
+        Any,
         NineToEleven,
         TenToEleven
     }
@@ -211,11 +213,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             hand.value = getCardValue(card1) + getCardValue(card2);
         }
 
-        uint8 dealerCard = drawCard();
-        s_dealerHand.cards = [dealerCard];
-        s_dealerHand.value = getCardValue(dealerCard);
-
-        uint8 value = getCardValue(dealerCard);
+        addCardToHand(s_dealerHand);
+        uint256 value = s_dealerHand.value;
 
         if (s_rules.allowInsurance && (value == 10 || value == 1)) {
             s_gameStatus = GameStatus.Insurance;
@@ -496,24 +495,34 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             revert Table__CannotDoubleAfterHit();
         }
 
+        if (s_rules.doubleRule == DoubleRule.NineToEleven && (hand.value > 11 || hand.value < 9)) {
+            revert Table__HandNotNineToEleven();
+        }
+
+        if (s_rules.doubleRule == DoubleRule.TenToEleven && (hand.value > 11 || hand.value < 10)) {
+            revert Table__HandNotTenToEleven();
+        }
+
         hand.doubled = true;
         increaseBet();
     }
 
     function increaseBet() internal {
-        uint256 betAmount = s_playerToState[msg.sender].initialBet;
-        s_playerToState[msg.sender].bet += betAmount;
-        s_betTotal += betAmount;
+        PlayerState storage state = s_playerToState[msg.sender];
+        uint256 amount = state.initialBet;
+        state.bet += amount;
+        state.balance += amount;
+        s_betTotal += amount;
 
         if (s_token == address(0)) {
-            if (msg.value < betAmount) {
+            if (msg.value < amount) {
                 revert Table__InsufficientBet();
             }
-            if (msg.value > betAmount) {
+            if (msg.value > amount) {
                 revert Table__BetExceedsMax();
             }
         } else {
-            bool success = IERC20(s_token).transferFrom(msg.sender, address(this), betAmount);
+            bool success = IERC20(s_token).transferFrom(msg.sender, address(this), amount);
 
             if (!success) {
                 revert Table__BetTransferFailed();
@@ -569,6 +578,32 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function dealerPlay() internal {
+        addCardToHand(s_dealerHand);
+        uint256 value = s_dealerHand.value;
 
+        if (value < 17 || (value == 17 && s_rules.dealerHitOnSoft17)) {
+            dealerPlay();
+            return;
+        }
+
+        bool dealerBust = value > 21;
+
+        for (uint8 i = 0; i < s_players.length; i++) {
+            PlayerState storage state = s_playerToState[s_players[i]];
+
+            for (uint j = 0; j < state.hands.length; j++) {
+                Hand memory hand = state.hands[j];
+
+                if (hand.status == HandStatus.Bust) {
+                    state.balance -= state.initialBet;
+                    continue;
+                }
+
+                if (s_dealerHand.status == HandStatus.Bust) {
+                    state.balance += state.bet;
+                    continue;
+                }
+            }
+        }
     }
 }
