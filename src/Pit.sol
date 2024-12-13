@@ -10,9 +10,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Table} from "./Table.sol";
 
-contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerBaseV2Upgradeable {
+contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerBaseV2Upgradeable, ReentrancyGuard {
     error Pit__DepositTransferFailed();
     error Pit__InsufficientBalance();
     error Pit__NotApprovedToken();
@@ -137,14 +138,48 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         s_playerTimeout = _seconds;
     }
 
-    function setMaxPayout(uint256 _amount, address _token) external {
+    function increaseMaxPayout(uint256 _amount, address _token) external onlyTable {
         address manager = s_tableToManager[msg.sender];
+        s_managerToTokenToState[manager][_token].maxPayout += _amount;
+    }
 
-        if (manager == address(0)) {
-            revert Pit__NotTable();
+    function decreaseMaxPayout(uint256 _amount, address _token) external onlyTable {
+        address manager = s_tableToManager[msg.sender];        
+        s_managerToTokenToState[manager][_token].maxPayout -= _amount;
+    }
+
+    function gameEnded(address _token, int256 _balanceChange, uint256 _gameMaxPayout) external onlyTable nonReentrant {
+        address manager = s_tableToManager[msg.sender];
+        TokenState storage tokenState = s_managerToTokenToState[manager][_token];
+        tokenState.maxPayout -= _gameMaxPayout;
+
+        if (_balanceChange > 0) {
+            tokenState.balance += uint(_balanceChange);
+        } else if (_balanceChange < 0) {
+            uint256 absValue = uint(-_balanceChange);
+            tokenState.balance -= absValue;
+
+            // TODO: Send funds to table contract and check max payout
+            if (_token == address(0)) {
+                Table(msg.sender).addBalance{value: absValue}();
+            } else {
+                IERC20(_token).transferFrom(address(this), msg.sender, absValue);
+            }
+
+            // Lock tables if token balance less than maxPayout
+            // NOTE: This should never happen - test this invariant
+            if (tokenState.balance < tokenState.maxPayout) {
+                address[] memory tables = s_managerToTables[msg.sender];
+
+                for (uint256 i = 0; i < tables.length; i++) {
+                    Table table = Table(tables[i]);
+                    
+                    if (table.s_token() == _token) {
+                        table.lock();
+                    }
+                }
+            }
         }
-        
-        s_managerToTokenToState[manager][_token].maxPayout = _amount;
     }
 
     function requestRandomWords() external onlyTable {
@@ -184,6 +219,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             revert Pit__DepositTransferFailed();
         }
 
+        // TODO: Sort out Aave accounting
         IPool(s_pool).supply(_token, _amount, address(this), 0);
     }
 

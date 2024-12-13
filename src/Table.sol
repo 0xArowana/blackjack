@@ -50,6 +50,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     address public s_manager;
     uint256[] internal s_randomWords;
     uint256 internal s_betTotal;
+    uint256 internal s_gameMaxPayout;
     uint8[] internal s_drawableCards;
     mapping(uint8 => uint8) internal s_cardToDrawCount;
     uint256 public s_lockTimestamp;
@@ -86,14 +87,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     struct PlayerState {
         uint8 seat;
         uint256 bet;
-        uint256 initialBet;
         Hand[] hands;
         uint256 balance;
     }
 
     struct Hand {
         uint8[] cards;
-        uint8 value;
+        uint8 minValue;
+        uint8 aceCount;
         HandStatus status;
         bool doubled;
     }
@@ -115,6 +116,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     event BetsStarted();
     event GameStarted();
     event Hit(uint8 indexed card);
+    event TableLocked();
 
     modifier onlyManager {
         if (msg.sender != address(s_manager)) {
@@ -206,15 +208,12 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         for (uint8 i = 0; i < s_players.length; i++) {
             address player = s_players[i];
             Hand storage hand = s_playerToState[player].hands[0];
-
-            uint8 card1 = drawCard();
-            uint8 card2 = drawCard();
-            hand.cards = [card1, card2];
-            hand.value = getCardValue(card1) + getCardValue(card2);
+            drawCard(hand);
+            drawCard(hand);
         }
 
-        addCardToHand(s_dealerHand);
-        uint256 value = s_dealerHand.value;
+        drawCard(s_dealerHand);
+        uint256 value = s_dealerHand.minValue;
 
         if (s_rules.allowInsurance && (value == 10 || value == 1)) {
             s_gameStatus = GameStatus.Insurance;
@@ -222,6 +221,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             s_gameStatus = GameStatus.PlayerTurn;
             emit GameStarted();
         }
+    }
+
+    function lock() external onlyOwner {
+        s_lockTimestamp = block.timestamp;
+        emit TableLocked();
     }
 
     function unlock() external onlyOwner {
@@ -326,9 +330,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             revert Table__BetExceedsMax();
         }
 
-        PlayerState storage playerState = s_playerToState[msg.sender];
-        playerState.bet = amount;
-        playerState.initialBet = amount;
+        PlayerState storage state = s_playerToState[msg.sender];
+        state.bet = amount;
 
         s_betTotal += amount;
 
@@ -348,12 +351,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         finalizeBets();
     }
 
+    function addBalance() external payable onlyOwner {}
+
     function finalizeBets() internal {
         Pit pit = Pit(payable(owner()));
         (uint256 balance, uint256 maxPayout) = pit.s_managerToTokenToState(s_manager, s_token);
 
-        uint256 bjPayoutFactor = s_rules.sixToFive ? 5 : 4;
-        uint256 gameMaxPayout = 1e18 * s_betTotal * 6 / bjPayoutFactor;
+        uint256 gameMaxPayout = getBlackJackPayout(s_betTotal);
 
         if (s_rules.allowDoubleAfterSplit) {
             gameMaxPayout *= 2 * s_rules.maxResplitHands;
@@ -361,11 +365,12 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             gameMaxPayout *= (s_rules.maxResplitHands + 1);
         }
 
-        uint256 newMaxPayout = maxPayout + Math.ceilDiv(gameMaxPayout, 1e18);
-        pit.setMaxPayout(newMaxPayout, s_token);
+        s_gameMaxPayout = gameMaxPayout;
+        pit.increaseMaxPayout(gameMaxPayout, s_token);
 
-        if (newMaxPayout > balance) {
+        if (maxPayout + gameMaxPayout > balance) {
             s_lockTimestamp = block.timestamp;
+            emit TableLocked();
         } else {
             startGame();
         }
@@ -392,8 +397,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             revert Table__CashOutTransferFailed();
         }
     }
-
-    function drawCard() internal returns (uint8) {
+    
+    function drawCard(Hand storage _hand) internal {
         if (s_randomWords.length == 0) {
             revert Table__NoCards();
         }
@@ -425,17 +430,35 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             }
         }
 
-        return card;
+        _hand.cards.push(card);
+        _hand.minValue += getCardMinValue(card);
+
+        if (card < 5) {
+            _hand.aceCount++;
+        }
     }
 
-    function getCardValue(uint8 _card) internal pure returns (uint8) {
+    function getCardMinValue(uint8 _card) internal pure returns (uint8) {
         return uint8(Math.min(Math.ceilDiv(_card, 4), 10));
     }
 
-    function addCardToHand(Hand storage _hand) internal {
-        uint8 card = drawCard(); 
-        _hand.cards.push(card);
-        _hand.value += getCardValue(card);
+    function getHandValue(Hand memory _hand) internal pure returns (uint8) {
+        uint8 value = _hand.minValue;
+
+        for (uint8 i = 0; i < _hand.aceCount; i++) {
+            if (value + 10 < 21) {
+                value += 10;
+            } else {
+                break;
+            }
+        }
+
+        return value;
+    }
+
+    function getBlackJackPayout(uint256 _bet) internal view returns (uint256) {
+        uint256 factor = s_rules.sixToFive ? 5 : 4;
+        return _bet * 6 / factor;
     }
 
     function getActiveHand() internal view returns (Hand storage, uint256) {
@@ -466,19 +489,19 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         uint8 card1 = hand.cards[0];
         uint8 card2 = hand.cards[1];
-        uint8 cardValue = getCardValue(card1);
+        uint8 cardMinValue = getCardMinValue(card1);
 
-        if (cardValue != getCardValue(card2)) {
+        if (cardMinValue != getCardMinValue(card2)) {
             revert Table__CannotSplitOnDifferentCards();
         }
 
         increaseBet();
 
-        addCardToHand(hand);
-        hand.value -= cardValue;
+        drawCard(hand);
+        hand.minValue -= cardMinValue;
 
         Hand memory newHand;
-        newHand.value = cardValue;
+        newHand.minValue = cardMinValue;
         Hand[] storage hands = s_playerToState[msg.sender].hands;
         hands.push(newHand);
         hands[hands.length - 1].cards.push(card2);
@@ -495,11 +518,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             revert Table__CannotDoubleAfterHit();
         }
 
-        if (s_rules.doubleRule == DoubleRule.NineToEleven && (hand.value > 11 || hand.value < 9)) {
+        if (s_rules.doubleRule == DoubleRule.NineToEleven && (hand.minValue > 11 || hand.minValue < 9)) {
             revert Table__HandNotNineToEleven();
         }
 
-        if (s_rules.doubleRule == DoubleRule.TenToEleven && (hand.value > 11 || hand.value < 10)) {
+        if (s_rules.doubleRule == DoubleRule.TenToEleven && (hand.minValue > 11 || hand.minValue < 10)) {
             revert Table__HandNotTenToEleven();
         }
 
@@ -509,9 +532,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     function increaseBet() internal {
         PlayerState storage state = s_playerToState[msg.sender];
-        uint256 amount = state.initialBet;
-        state.bet += amount;
-        state.balance += amount;
+        uint256 amount = state.bet;
+
         s_betTotal += amount;
 
         if (s_token == address(0)) {
@@ -532,9 +554,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     function hit() external onlyCurrentPlayer {
         (Hand storage hand, uint256 index) = getActiveHand();
-        addCardToHand(hand);
+        drawCard(hand);
 
-        if (hand.value > 21) {
+        if (hand.minValue > 21) {
             finishHand(index, HandStatus.Bust);
         } else if (hand.doubled) {
             finishHand(index, HandStatus.Stand);
@@ -554,7 +576,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             nextTurn();
         } else {
             Hand storage nextHand = hands[_index + 1];
-            addCardToHand(nextHand);
+            drawCard(nextHand);
         }
     }
 
@@ -578,32 +600,58 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function dealerPlay() internal {
-        addCardToHand(s_dealerHand);
-        uint256 value = s_dealerHand.value;
+        drawCard(s_dealerHand);
+        uint256 dealerHandValue = getHandValue(s_dealerHand);
 
-        if (value < 17 || (value == 17 && s_rules.dealerHitOnSoft17)) {
+        if (dealerHandValue < 17 || (dealerHandValue == 17 && s_dealerHand.aceCount > 0 && s_rules.dealerHitOnSoft17)) {
             dealerPlay();
             return;
         }
 
-        bool dealerBust = value > 21;
+        if (dealerHandValue > 21) {
+            s_dealerHand.status = HandStatus.Bust;
+        }
+
+        int256 tableEarnings;
 
         for (uint8 i = 0; i < s_players.length; i++) {
-            PlayerState storage state = s_playerToState[s_players[i]];
+            PlayerState storage playerState = s_playerToState[s_players[i]];
 
-            for (uint j = 0; j < state.hands.length; j++) {
-                Hand memory hand = state.hands[j];
+            for (uint j = 0; j < playerState.hands.length; j++) {
+                Hand memory hand = playerState.hands[j];
+                uint256 bet = hand.doubled ? playerState.bet * 2 : playerState.bet;
 
+                // If hand already busted
                 if (hand.status == HandStatus.Bust) {
-                    state.balance -= state.initialBet;
+                    tableEarnings += int256(bet);
                     continue;
                 }
 
-                if (s_dealerHand.status == HandStatus.Bust) {
-                    state.balance += state.bet;
+                uint256 handValue = getHandValue(hand);
+
+                // If player wins
+                if (handValue > dealerHandValue || s_dealerHand.status == HandStatus.Bust) {
+                    uint256 payout = handValue == 21 ? getBlackJackPayout(bet) : bet;
+                    playerState.balance += bet + payout;
+                    tableEarnings -= int256(payout);
                     continue;
+                }
+
+                // If push/tie
+                if (handValue == dealerHandValue) {
+                    playerState.balance += bet;
                 }
             }
         }
+
+        Pit(payable(owner())).gameEnded(s_token, tableEarnings, s_gameMaxPayout);
+    }
+
+    function resetGame() internal {
+        // remove all hands from all players
+
+        s_gameMaxPayout = 0;
+
+        // check if autoplay and if balance is greater than max payout
     }
 }
