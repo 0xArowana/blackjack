@@ -159,11 +159,10 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             uint256 absValue = uint(-_balanceChange);
             tokenState.balance -= absValue;
 
-            // TODO: Send funds to table contract and check max payout
             if (_token == address(0)) {
-                Table(msg.sender).addBalance{value: absValue}();
+                Table(msg.sender).addBalance{value: absValue}(0);
             } else {
-                IERC20(_token).transferFrom(address(this), msg.sender, absValue);
+                Table(msg.sender).addBalance(absValue);
             }
 
             // Lock tables if token balance less than maxPayout

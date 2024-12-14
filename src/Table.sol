@@ -9,17 +9,17 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {Pit} from "./Pit.sol";
 
 contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
-    error Table__BetTransferFailed();
     error Table__CannotDoubleAfterHit();
     error Table__CannotSplitAfterHit();
     error Table__CannotSplitOnDifferentCards();
-    error Table__EthSentForTokenBet();
+    error Table__CurrencyNotEth();
     error Table__HandNotNineToEleven();
     error Table__HandNotTenToEleven();
     error Table__InsufficientBet();
     error Table__InvalidSeat();
     error Table__InvalidMaxPlayers();
     error Table__InvalidPlayer();
+    error Table__Locked();
     error Table__NoCards();
     error Table__NotEmpty();
     error Table__PlayerNotFound();
@@ -38,6 +38,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__NotManager();
     error Table__NotPlayerTurnStatus();
     error Table__CashOutTransferFailed();
+    error Table__TokenTransferFailed();
 
     address[] s_players;
     mapping(address => PlayerState) public s_playerToState;
@@ -48,6 +49,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     uint8 s_maxPlayers;
     address public s_token;
     address public s_manager;
+    int256 internal s_balance;
     uint256[] internal s_randomWords;
     uint256 internal s_betTotal;
     uint256 internal s_gameMaxPayout;
@@ -149,9 +151,30 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         _;
     }
 
+    modifier whenBet {
+        if (s_gameStatus != GameStatus.Bet) {
+            revert Table__NotBetStatus();
+        }
+        _;
+    }
+
     modifier whenInactiveOrBet {
         if (s_gameStatus != GameStatus.Bet && s_gameStatus != GameStatus.Inactive) {
             revert Table__GameInProgress();
+        }
+        _;
+    }
+
+    modifier whenUnlocked {
+        if (s_lockTimestamp == 0) {
+           revert Table__Locked();
+        }
+        _;
+    }
+
+    modifier checkCurrency {
+        if (s_token != address(0) && msg.value > 0) {
+            revert Table__CurrencyNotEth();
         }
         _;
     }
@@ -228,7 +251,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         emit TableLocked();
     }
 
-    function unlock() external onlyOwner {
+    function unlock() public onlyOwner {
         if (s_lockTimestamp > 0) {
             s_lockTimestamp = 0;
             startGame();
@@ -244,7 +267,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function sit(uint8 _seat) external {
+    function sit(uint8 _seat) external whenUnlocked {
         if (msg.sender == owner()) {
             revert Table__InvalidPlayer();
         }
@@ -259,7 +282,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         bool isGameStarted = s_gameStatus != GameStatus.Inactive && s_gameStatus != GameStatus.Bet;
 
-        if (!isGameStarted && s_lockTimestamp == 0) {
+        if (!isGameStarted) {
             s_playerToState[msg.sender].seat = _seat;
             s_seatToPlayer[_seat] = msg.sender;
             s_players.push(msg.sender);
@@ -310,15 +333,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function placeBet(uint256 _amount) external payable nonReentrant {
-        if (s_gameStatus != GameStatus.Bet) {
-            revert Table__NotBetStatus();
-        }
+    function placeBet(uint256 _amount) external payable whenBet checkCurrency nonReentrant {
         if (s_playerToState[msg.sender].bet > 0) {
             revert Table__BetAlreadyPlaced();
-        }
-        if (s_token != address(0) && msg.value > 0) {
-            revert Table__EthSentForTokenBet();
         }
 
         uint256 amount = s_token != address(0) ? _amount : msg.value;
@@ -339,7 +356,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             bool success = IERC20(s_token).transferFrom(msg.sender, address(this), _amount);
 
             if (!success) {
-                revert Table__BetTransferFailed();
+                revert Table__TokenTransferFailed();
             }
         }
 
@@ -351,7 +368,23 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         finalizeBets();
     }
 
-    function addBalance() external payable onlyOwner {}
+    function addBalance(uint256 _amount) external payable onlyOwner checkCurrency {
+        if (s_token != address(0)) {
+            bool success = IERC20(s_token).transferFrom(msg.sender, address(this), _amount);
+
+            if (!success) {
+                revert Table__TokenTransferFailed();
+            }
+
+            s_balance += int256(_amount);
+        } else {
+            s_balance += int256(msg.value);
+        }
+
+        if (s_lockTimestamp > 0 && s_balance >= 0) {
+            unlock();
+        }
+    }
 
     function finalizeBets() internal {
         Pit pit = Pit(payable(owner()));
@@ -473,10 +506,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         revert Table__NoActiveHand();
     }
 
-    function split() payable external onlyCurrentPlayer nonReentrant {
-        if (s_token != address(0) && msg.value > 0) {
-            revert Table__EthSentForTokenBet();
-        }
+    function split() payable external onlyCurrentPlayer checkCurrency nonReentrant {
         if (s_playerToState[msg.sender].hands.length == s_rules.maxResplitHands) {
             revert Table__MaxResplitHandsReached();
         }
@@ -507,11 +537,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         hands[hands.length - 1].cards.push(card2);
     }
 
-    function double() payable external onlyCurrentPlayer nonReentrant {
-        if (s_token != address(0) && msg.value > 0) {
-            revert Table__EthSentForTokenBet();
-        }
-
+    function double() payable external onlyCurrentPlayer checkCurrency nonReentrant {
         (Hand storage hand,) = getActiveHand();
 
         if (hand.cards.length > 2) {
@@ -547,7 +573,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             bool success = IERC20(s_token).transferFrom(msg.sender, address(this), amount);
 
             if (!success) {
-                revert Table__BetTransferFailed();
+                revert Table__TokenTransferFailed();
             }
         }
     }
@@ -632,7 +658,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
                 // If player wins
                 if (handValue > dealerHandValue || s_dealerHand.status == HandStatus.Bust) {
                     uint256 payout = handValue == 21 ? getBlackJackPayout(bet) : bet;
-                    playerState.balance += bet + payout;
+                    playerState.balance += payout;
                     tableEarnings -= int256(payout);
                     continue;
                 }
@@ -645,13 +671,24 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
 
         Pit(payable(owner())).gameEnded(s_token, tableEarnings, s_gameMaxPayout);
-    }
-
-    function resetGame() internal {
-        // remove all hands from all players
-
         s_gameMaxPayout = 0;
+        s_balance += tableEarnings;
 
-        // check if autoplay and if balance is greater than max payout
+        // Reset player bet and hands
+        for (uint8 i = 0; i < s_players.length; i++) {
+            address player = s_players[i];
+            PlayerState storage playerState = s_playerToState[player];
+            delete playerState.hands;
+            playerState.bet = 0;
+        }
+
+        // NOTE: Should not happen after addBalance call from Pit - test invariant
+        if (s_balance < 0) {
+            s_lockTimestamp = block.timestamp;
+            s_gameStatus = GameStatus.Inactive;
+            return;
+        }
+
+        s_gameStatus = s_continuousPlay ? GameStatus.Bet : GameStatus.Inactive;
     }
 }
