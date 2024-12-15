@@ -14,16 +14,18 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {Table} from "./Table.sol";
 
 contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerBaseV2Upgradeable, ReentrancyGuard {
-    error Pit__DepositTransferFailed();
+    error Pit__CurrencyNotEth();
     error Pit__InsufficientBalance();
-    error Pit__NotApprovedToken();
-    error Pit__NotManager();
-    error Pit__NotTable();
-    error Pit__VrfRequestNotFound();
     error Pit__InsufficientManagerBalance();
     error Pit__InvalidMaxPlayers();
     error Pit__InvalidDeckCount();
+    error Pit__InvalidEarningsAmountSent();
     error Pit__InvalidMaxResplitHands();
+    error Pit__NotApprovedToken();
+    error Pit__NotManager();
+    error Pit__NotTable();
+    error Pit__TokenTransferFailed();
+    error Pit__VrfRequestNotFound();
 
     // Config
     address[] private s_tokens;
@@ -148,22 +150,27 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         s_managerToTokenToState[manager][_token].maxPayout -= _amount;
     }
 
-    function gameEnded(address _token, int256 _balanceChange, uint256 _gameMaxPayout) external onlyTable nonReentrant {
+    function gameEnded(address _token, int256 _earnings, uint256 _gameMaxPayout) external payable onlyTable nonReentrant {
+        if (_token != address(0) && msg.value > 0) {
+            revert Pit__CurrencyNotEth();
+        }
+
         address manager = s_tableToManager[msg.sender];
         TokenState storage tokenState = s_managerToTokenToState[manager][_token];
         tokenState.maxPayout -= _gameMaxPayout;
 
-        if (_balanceChange > 0) {
-            tokenState.balance += uint(_balanceChange);
-        } else if (_balanceChange < 0) {
-            uint256 absValue = uint(-_balanceChange);
+        if (_earnings < 0) {
+            uint256 absValue = uint256(-_earnings);
             tokenState.balance -= absValue;
+            uint256 ethAmount;
 
             if (_token == address(0)) {
-                Table(msg.sender).addBalance{value: absValue}(0);
+                ethAmount = absValue;
             } else {
-                Table(msg.sender).addBalance(absValue);
+                IERC20(_token).approve(msg.sender, absValue);
             }
+
+            Table(msg.sender).clearDebt{value: ethAmount}();
 
             // Lock tables if token balance less than maxPayout
             // NOTE: This should never happen - test this invariant
@@ -178,6 +185,22 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
                     }
                 }
             }
+        } else if (_earnings > 0) {
+            uint256 earnings = uint256(_earnings);
+
+            if (_token == address(0)) {
+                if (msg.value != earnings) {
+                    revert Pit__InvalidEarningsAmountSent();
+                }
+            } else {
+                bool success = IERC20(_token).transferFrom(msg.sender, address(this), earnings);
+
+                if (!success) {
+                    revert Pit__TokenTransferFailed();
+                }
+            }
+
+            s_managerToTokenToState[manager][_token].balance += earnings;
         }
     }
 
@@ -215,7 +238,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         bool success = IERC20(_token).transferFrom(msg.sender, address(this), _amount);
 
         if (!success) {
-            revert Pit__DepositTransferFailed();
+            revert Pit__TokenTransferFailed();
         }
 
         // TODO: Sort out Aave accounting

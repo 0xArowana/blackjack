@@ -16,6 +16,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__HandNotNineToEleven();
     error Table__HandNotTenToEleven();
     error Table__InsufficientBet();
+    error Table__InvalidDebtClearanceAmount();
     error Table__InvalidSeat();
     error Table__InvalidMaxPlayers();
     error Table__InvalidPlayer();
@@ -49,7 +50,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     uint8 s_maxPlayers;
     address public s_token;
     address public s_manager;
-    int256 internal s_balance;
+    uint256 internal s_debt;
     uint256[] internal s_randomWords;
     uint256 internal s_betTotal;
     uint256 internal s_gameMaxPayout;
@@ -110,6 +111,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     enum GameStatus {
         Inactive,
         Bet,
+        Pending,
         Insurance,
         PlayerTurn,
         DealerTurn
@@ -252,8 +254,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function unlock() public onlyOwner {
-        if (s_lockTimestamp > 0) {
-            s_lockTimestamp = 0;
+        s_lockTimestamp = 0;
+
+        if (s_gameStatus == GameStatus.Pending) {
             startGame();
         }
     }
@@ -368,22 +371,18 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         finalizeBets();
     }
 
-    function addBalance(uint256 _amount) external payable onlyOwner checkCurrency {
+    function clearDebt() external payable onlyOwner checkCurrency {
         if (s_token != address(0)) {
-            bool success = IERC20(s_token).transferFrom(msg.sender, address(this), _amount);
+            bool success = IERC20(s_token).transferFrom(msg.sender, address(this), s_debt);
 
             if (!success) {
                 revert Table__TokenTransferFailed();
             }
-
-            s_balance += int256(_amount);
-        } else {
-            s_balance += int256(msg.value);
+        } else if (msg.value != s_debt) {
+            revert Table__InvalidDebtClearanceAmount();
         }
 
-        if (s_lockTimestamp > 0 && s_balance >= 0) {
-            unlock();
-        }
+        s_debt = 0;
     }
 
     function finalizeBets() internal {
@@ -403,6 +402,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (maxPayout + gameMaxPayout > balance) {
             s_lockTimestamp = block.timestamp;
+            s_gameStatus = GameStatus.Pending;
             emit TableLocked();
         } else {
             startGame();
@@ -638,7 +638,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             s_dealerHand.status = HandStatus.Bust;
         }
 
-        int256 tableEarnings;
+        int256 earnings;
 
         for (uint8 i = 0; i < s_players.length; i++) {
             PlayerState storage playerState = s_playerToState[s_players[i]];
@@ -649,7 +649,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
                 // If hand already busted
                 if (hand.status == HandStatus.Bust) {
-                    tableEarnings += int256(bet);
+                    earnings += int256(bet);
                     continue;
                 }
 
@@ -659,7 +659,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
                 if (handValue > dealerHandValue || s_dealerHand.status == HandStatus.Bust) {
                     uint256 payout = handValue == 21 ? getBlackJackPayout(bet) : bet;
                     playerState.balance += payout;
-                    tableEarnings -= int256(payout);
+                    earnings -= int256(payout);
                     continue;
                 }
 
@@ -670,9 +670,20 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             }
         }
 
-        Pit(payable(owner())).gameEnded(s_token, tableEarnings, s_gameMaxPayout);
+        uint256 ethEarnings;
+
+        if (earnings < 0) {
+            s_debt = uint256(-earnings); 
+        } else if (earnings > 0) {
+            if (s_token == address(0)) {
+                ethEarnings = uint256(earnings);
+            } else {
+                IERC20(s_token).approve(owner(), uint256(earnings));
+            }
+        } 
+        
+        Pit(payable(owner())).gameEnded{value: ethEarnings}(s_token, earnings, s_gameMaxPayout);
         s_gameMaxPayout = 0;
-        s_balance += tableEarnings;
 
         // Reset player bet and hands
         for (uint8 i = 0; i < s_players.length; i++) {
@@ -682,8 +693,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             playerState.bet = 0;
         }
 
-        // NOTE: Should not happen after addBalance call from Pit - test invariant
-        if (s_balance < 0) {
+        // NOTE: Should not happen after clearDebt call from Pit - test invariant
+        if (s_debt > 0) {
             s_lockTimestamp = block.timestamp;
             s_gameStatus = GameStatus.Inactive;
             return;
