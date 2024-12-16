@@ -41,28 +41,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__CashOutTransferFailed();
     error Table__TokenTransferFailed();
 
-    address[] s_players;
-    mapping(address => PlayerState) public s_playerToState;
-    mapping(uint8 => address) public s_seatToPlayer;
-    mapping(uint8 => address) public s_seatToWaitingPlayer;
-    BetRange s_betRange;
-    Rules s_rules;
-    uint8 s_maxPlayers;
-    address public s_token;
-    address public s_manager;
-    uint256 internal s_debt;
-    uint256[] internal s_randomWords;
-    uint256 internal s_betTotal;
-    uint256 internal s_gameMaxPayout;
-    uint8[] internal s_drawableCards;
-    mapping(uint8 => uint8) internal s_cardToDrawCount;
-    uint256 public s_lockTimestamp;
-    bool s_continuousPlay;    
-    
-    GameStatus internal s_gameStatus;
-    Hand internal s_dealerHand;
-    address internal s_currentPlayer;
-
     enum DoubleRule {
         Any,
         NineToEleven,
@@ -116,6 +94,27 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         PlayerTurn,
         DealerTurn
     }
+
+    address public s_token;
+    address public s_manager;
+    address[] s_players;
+    mapping(address => PlayerState) public s_playerToState;
+    mapping(uint8 => address) public s_seatToPlayer;
+    mapping(uint8 => address) public s_seatToWaitingPlayer;
+    uint256 public s_lockTimestamp;
+    GameStatus internal s_gameStatus;
+    Hand internal s_dealerHand;
+    address internal s_currentPlayer;
+    Rules internal s_rules;
+    BetRange internal s_betRange;
+    uint8 internal s_maxPlayers;
+    uint256 internal s_debt;
+    uint256 internal s_betTotal;
+    uint256 internal s_gameMaxPayout;
+    uint256[] internal s_randomWords;
+    uint8[] internal s_drawableCards;
+    mapping(uint8 => uint8) internal s_cardToDrawCount;
+    bool internal s_continuousPlay;
 
     event BetsStarted();
     event GameStarted();
@@ -200,7 +199,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         refreshRandomWords();
     }
 
-    function setMaxPlayers(uint8 _maxPlayers) external onlyOwner whenInactive {
+    function setMaxPlayers(uint8 _maxPlayers) external onlyManager whenInactive whenUnlocked {
         if (_maxPlayers < (s_players.length + 1) || _maxPlayers > 7) {
             revert Table__InvalidMaxPlayers();
         }
@@ -208,11 +207,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_maxPlayers = _maxPlayers;
     }
     
-    function setBetRange(BetRange memory _betRange) external onlyOwner whenInactive {
+    function setBetRange(BetRange memory _betRange) external onlyManager whenInactive whenUnlocked {
         s_betRange = _betRange;
     }
 
-    function setToken(address _token) external onlyOwner whenInactive whenEmpty {
+    function setToken(address _token) external onlyManager whenInactive whenUnlocked whenEmpty {
         s_token = _token;
     }
 
@@ -220,54 +219,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_randomWords = _randomWords;
     }
 
-    function refreshRandomWords() internal {
-        Pit(payable(owner())).requestRandomWords();
-    }
-
-    function startBets() external onlyManager whenInactive {
+    function startBets() external onlyManager whenInactive whenUnlocked {
         s_gameStatus = GameStatus.Bet;
         emit BetsStarted();
-    }
-
-    function startGame() internal {
-        for (uint8 i = 0; i < s_players.length; i++) {
-            address player = s_players[i];
-            Hand storage hand = s_playerToState[player].hands[0];
-            drawCard(hand);
-            drawCard(hand);
-        }
-
-        drawCard(s_dealerHand);
-        uint256 value = s_dealerHand.minValue;
-
-        if (s_rules.allowInsurance && (value == 10 || value == 1)) {
-            s_gameStatus = GameStatus.Insurance;
-        } else {
-            s_gameStatus = GameStatus.PlayerTurn;
-            emit GameStarted();
-        }
-    }
-
-    function lock() external onlyOwner {
-        s_lockTimestamp = block.timestamp;
-        emit TableLocked();
-    }
-
-    function unlock() public onlyOwner {
-        s_lockTimestamp = 0;
-
-        if (s_gameStatus == GameStatus.Pending) {
-            startGame();
-        }
-    }
-
-    function resetDrawableCards() internal {
-        delete s_drawableCards;
-
-        for (uint8 i = 1; i < 53; i++) {
-            s_cardToDrawCount[i] = 0;
-            s_drawableCards.push(i);
-        }
     }
 
     function sit(uint8 _seat) external whenUnlocked {
@@ -294,7 +248,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function leave() external whenInactiveOrBet {
+    function leave() external whenInactiveOrBet whenUnlocked {
         uint8 seat = s_playerToState[msg.sender].seat;
 
         if (seat == 0) {
@@ -336,7 +290,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function placeBet(uint256 _amount) external payable whenBet checkCurrency nonReentrant {
+    function placeBet(uint256 _amount) external payable whenBet whenUnlocked checkCurrency nonReentrant {
         if (s_playerToState[msg.sender].bet > 0) {
             revert Table__BetAlreadyPlaced();
         }
@@ -371,6 +325,72 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         finalizeBets();
     }
 
+    function double() payable external onlyCurrentPlayer whenUnlocked checkCurrency nonReentrant {
+        (Hand storage hand,) = getActiveHand();
+
+        if (hand.cards.length > 2) {
+            revert Table__CannotDoubleAfterHit();
+        }
+
+        if (s_rules.doubleRule == DoubleRule.NineToEleven && (hand.minValue > 11 || hand.minValue < 9)) {
+            revert Table__HandNotNineToEleven();
+        }
+
+        if (s_rules.doubleRule == DoubleRule.TenToEleven && (hand.minValue > 11 || hand.minValue < 10)) {
+            revert Table__HandNotTenToEleven();
+        }
+
+        hand.doubled = true;
+        increaseBet();
+    }
+
+    function hit() external onlyCurrentPlayer whenUnlocked {
+        (Hand storage hand, uint256 index) = getActiveHand();
+        drawCard(hand);
+
+        if (hand.minValue > 21) {
+            finishHand(index, HandStatus.Bust);
+        } else if (hand.doubled) {
+            finishHand(index, HandStatus.Stand);
+        }
+    }
+
+    function stand() external onlyCurrentPlayer whenUnlocked {
+        (, uint256 index) = getActiveHand();
+        finishHand(index, HandStatus.Stand);
+    }
+
+    function split() payable external onlyCurrentPlayer whenUnlocked checkCurrency nonReentrant {
+        if (s_playerToState[msg.sender].hands.length == s_rules.maxResplitHands) {
+            revert Table__MaxResplitHandsReached();
+        }
+        
+        (Hand storage hand,) = getActiveHand();
+
+        if (hand.cards.length > 2) {
+            revert Table__CannotSplitAfterHit();
+        }
+
+        uint8 card1 = hand.cards[0];
+        uint8 card2 = hand.cards[1];
+        uint8 cardMinValue = getCardMinValue(card1);
+
+        if (cardMinValue != getCardMinValue(card2)) {
+            revert Table__CannotSplitOnDifferentCards();
+        }
+
+        increaseBet();
+
+        drawCard(hand);
+        hand.minValue -= cardMinValue;
+
+        Hand memory newHand;
+        newHand.minValue = cardMinValue;
+        Hand[] storage hands = s_playerToState[msg.sender].hands;
+        hands.push(newHand);
+        hands[hands.length - 1].cards.push(card2);
+    }
+
     function clearDebt() external payable onlyOwner checkCurrency {
         if (s_token != address(0)) {
             bool success = IERC20(s_token).transferFrom(msg.sender, address(this), s_debt);
@@ -383,6 +403,70 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
 
         s_debt = 0;
+        s_lockTimestamp = 0;
+    }
+
+    function cashOut() external whenUnlocked nonReentrant {
+        uint256 amount = s_playerToState[msg.sender].balance;
+
+        if (amount == 0) {
+            revert Table__NoBalanceAvailable();
+        }
+
+        s_playerToState[msg.sender].balance = 0;
+
+        bool success;
+
+        if (s_token == address(0)) {
+            (success,) = msg.sender.call{value: amount}("");
+        } else {
+            success = IERC20(s_token).transfer(msg.sender, amount);
+        }
+
+        if (!success) {
+            revert Table__CashOutTransferFailed();
+        }
+    }
+
+    function lock() external onlyOwner {
+        s_lockTimestamp = block.timestamp;
+        emit TableLocked();
+    }
+
+    function unlock() public onlyOwner {
+        s_lockTimestamp = 0;
+
+        if (s_gameStatus == GameStatus.Pending) {
+            startGame();
+        }
+    }
+
+    function startGame() internal {
+        for (uint8 i = 0; i < s_players.length; i++) {
+            address player = s_players[i];
+            Hand storage hand = s_playerToState[player].hands[0];
+            drawCard(hand);
+            drawCard(hand);
+        }
+
+        drawCard(s_dealerHand);
+        uint256 value = s_dealerHand.minValue;
+
+        if (s_rules.allowInsurance && (value == 10 || value == 1)) {
+            s_gameStatus = GameStatus.Insurance;
+        } else {
+            s_gameStatus = GameStatus.PlayerTurn;
+            emit GameStarted();
+        }
+    }
+
+    function resetDrawableCards() internal {
+        delete s_drawableCards;
+
+        for (uint8 i = 1; i < 53; i++) {
+            s_cardToDrawCount[i] = 0;
+            s_drawableCards.push(i);
+        }
     }
 
     function finalizeBets() internal {
@@ -406,28 +490,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             emit TableLocked();
         } else {
             startGame();
-        }
-    }
-
-    function cashOut() external nonReentrant {
-        uint256 amount = s_playerToState[msg.sender].balance;
-
-        if (amount == 0) {
-            revert Table__NoBalanceAvailable();
-        }
-
-        s_playerToState[msg.sender].balance = 0;
-
-        bool success;
-
-        if (s_token == address(0)) {
-            (success,) = msg.sender.call{value: amount}("");
-        } else {
-            success = IERC20(s_token).transfer(msg.sender, amount);
-        }
-
-        if (!success) {
-            revert Table__CashOutTransferFailed();
         }
     }
     
@@ -471,89 +533,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function getCardMinValue(uint8 _card) internal pure returns (uint8) {
-        return uint8(Math.min(Math.ceilDiv(_card, 4), 10));
-    }
-
-    function getHandValue(Hand memory _hand) internal pure returns (uint8) {
-        uint8 value = _hand.minValue;
-
-        for (uint8 i = 0; i < _hand.aceCount; i++) {
-            if (value + 10 < 21) {
-                value += 10;
-            } else {
-                break;
-            }
-        }
-
-        return value;
-    }
-
-    function getBlackJackPayout(uint256 _bet) internal view returns (uint256) {
-        uint256 factor = s_rules.sixToFive ? 5 : 4;
-        return _bet * 6 / factor;
-    }
-
-    function getActiveHand() internal view returns (Hand storage, uint256) {
-        Hand[] storage hands = s_playerToState[msg.sender].hands;
-
-        for (uint256 i = 0; i < hands.length; i++) {
-            if (hands[i].status == HandStatus.Active) {
-                return (hands[i], i);
-            }
-        }
-
-        revert Table__NoActiveHand();
-    }
-
-    function split() payable external onlyCurrentPlayer checkCurrency nonReentrant {
-        if (s_playerToState[msg.sender].hands.length == s_rules.maxResplitHands) {
-            revert Table__MaxResplitHandsReached();
-        }
-        
-        (Hand storage hand,) = getActiveHand();
-
-        if (hand.cards.length > 2) {
-            revert Table__CannotSplitAfterHit();
-        }
-
-        uint8 card1 = hand.cards[0];
-        uint8 card2 = hand.cards[1];
-        uint8 cardMinValue = getCardMinValue(card1);
-
-        if (cardMinValue != getCardMinValue(card2)) {
-            revert Table__CannotSplitOnDifferentCards();
-        }
-
-        increaseBet();
-
-        drawCard(hand);
-        hand.minValue -= cardMinValue;
-
-        Hand memory newHand;
-        newHand.minValue = cardMinValue;
-        Hand[] storage hands = s_playerToState[msg.sender].hands;
-        hands.push(newHand);
-        hands[hands.length - 1].cards.push(card2);
-    }
-
-    function double() payable external onlyCurrentPlayer checkCurrency nonReentrant {
-        (Hand storage hand,) = getActiveHand();
-
-        if (hand.cards.length > 2) {
-            revert Table__CannotDoubleAfterHit();
-        }
-
-        if (s_rules.doubleRule == DoubleRule.NineToEleven && (hand.minValue > 11 || hand.minValue < 9)) {
-            revert Table__HandNotNineToEleven();
-        }
-
-        if (s_rules.doubleRule == DoubleRule.TenToEleven && (hand.minValue > 11 || hand.minValue < 10)) {
-            revert Table__HandNotTenToEleven();
-        }
-
-        hand.doubled = true;
-        increaseBet();
+    function refreshRandomWords() internal {
+        Pit(payable(owner())).requestRandomWords();
     }
 
     function increaseBet() internal {
@@ -576,22 +557,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
                 revert Table__TokenTransferFailed();
             }
         }
-    }
-
-    function hit() external onlyCurrentPlayer {
-        (Hand storage hand, uint256 index) = getActiveHand();
-        drawCard(hand);
-
-        if (hand.minValue > 21) {
-            finishHand(index, HandStatus.Bust);
-        } else if (hand.doubled) {
-            finishHand(index, HandStatus.Stand);
-        }
-    }
-
-    function stand() external onlyCurrentPlayer {
-        (, uint256 index) = getActiveHand();
-        finishHand(index, HandStatus.Stand);
     }
 
     function finishHand(uint256 _index, HandStatus _status) internal {
@@ -673,7 +638,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint256 ethEarnings;
 
         if (earnings < 0) {
-            s_debt = uint256(-earnings); 
+            s_debt = uint256(-earnings);
+            s_lockTimestamp = block.timestamp; 
         } else if (earnings > 0) {
             if (s_token == address(0)) {
                 ethEarnings = uint256(earnings);
@@ -693,13 +659,42 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             playerState.bet = 0;
         }
 
-        // NOTE: Should not happen after clearDebt call from Pit - test invariant
-        if (s_debt > 0) {
-            s_lockTimestamp = block.timestamp;
-            s_gameStatus = GameStatus.Inactive;
-            return;
+        bool skipInactive = s_continuousPlay && s_lockTimestamp == 0;
+        s_gameStatus = skipInactive ? GameStatus.Bet : GameStatus.Inactive;
+    }
+
+    function getBlackJackPayout(uint256 _bet) internal view returns (uint256) {
+        uint256 factor = s_rules.sixToFive ? 5 : 4;
+        return _bet * 6 / factor;
+    }
+
+    function getActiveHand() internal view returns (Hand storage, uint256) {
+        Hand[] storage hands = s_playerToState[msg.sender].hands;
+
+        for (uint256 i = 0; i < hands.length; i++) {
+            if (hands[i].status == HandStatus.Active) {
+                return (hands[i], i);
+            }
         }
 
-        s_gameStatus = s_continuousPlay ? GameStatus.Bet : GameStatus.Inactive;
+        revert Table__NoActiveHand();
+    }
+
+    function getCardMinValue(uint8 _card) internal pure returns (uint8) {
+        return uint8(Math.min(Math.ceilDiv(_card, 4), 10));
+    }
+
+    function getHandValue(Hand memory _hand) internal pure returns (uint8) {
+        uint8 value = _hand.minValue;
+
+        for (uint8 i = 0; i < _hand.aceCount; i++) {
+            if (value + 10 < 21) {
+                value += 10;
+            } else {
+                break;
+            }
+        }
+
+        return value;
     }
 }
