@@ -41,12 +41,22 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__CashOutTransferFailed();
     error Table__TokenTransferFailed();
 
+    /// @notice The seat, bet, hands, and balance of a player
+    struct PlayerState {
+        uint8 seat;
+        uint256 bet;
+        Hand[] hands;
+        uint256 balance;
+    }
+
+    /// @notice Determines the hand value forward which the bet can be doubled
     enum DoubleRule {
         Any,
         NineToEleven,
         TenToEleven
     }
 
+    /// @notice Standard blackjack parameters by which the game logic operates
     struct Rules {
         uint8 deckCount;
         bool dealerHitOnSoft17;
@@ -60,18 +70,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         bool sixToFive;
     }
 
+    // @notice The range in which bets may be placed
     struct BetRange {
         uint256 min;
         uint256 max;
     }
 
-    struct PlayerState {
-        uint8 seat;
-        uint256 bet;
-        Hand[] hands;
-        uint256 balance;
-    }
-
+    // @notice A list of cards and other details for a hand
     struct Hand {
         uint8[] cards;
         uint8 minValue;
@@ -80,12 +85,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         bool doubled;
     }
 
+    // @notice The status of a hand
     enum HandStatus {
         Active,
         Stand,
         Bust
     }
 
+    // @notice The status of the current game
     enum GameStatus {
         Inactive,
         Bet,
