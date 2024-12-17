@@ -20,7 +20,7 @@ contract DeployPit is Script {
     
         proxy.initialize(
             configHelper.getTokens(),
-            aave.getPool(configHelper.getPoolAddressesProvider()),
+            address(0), // aave.getPool(configHelper.getPoolAddressesProvider()),
             PLAYER_TIMEOUT,
             configHelper.getVrfConfig()
         );

@@ -41,7 +41,7 @@ contract ConfigHelper is Script {
     }
 
     function getTokens() public view returns (address[] memory) {
-        address[] memory tokens;
+        address[] memory tokens = new address[](1);
         
         if (block.chainid == 421614) {
             tokens[0] = 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d;
