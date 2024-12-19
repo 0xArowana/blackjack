@@ -4,6 +4,7 @@ pragma solidity ^0.8.18;
 
 import {Script} from "forge-std/Script.sol";
 import {Pit} from "../src/Pit.sol";
+import {console} from "forge-std/console.sol";
 
 contract ConfigHelper is Script {
     function getVrfConfig() public view returns (Pit.VrfConfig memory) {
@@ -48,7 +49,10 @@ contract ConfigHelper is Script {
         } else if (block.chainid == 11155111) {
             tokens[0] = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
         }
-        
+
+        console.log("TOKENS.....");
+        console.logAddress(tokens[0]);
+
         return tokens;
     }
 }

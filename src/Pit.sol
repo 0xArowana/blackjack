@@ -205,20 +205,20 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     }
 
     function requestRandomWords() external onlyTable {
-        IVRFCoordinatorV2Plus coordinator = IVRFCoordinatorV2Plus(s_vrfConfig.coordinator);
+        // IVRFCoordinatorV2Plus coordinator = IVRFCoordinatorV2Plus(s_vrfConfig.coordinator);
 
-        uint256 requestId = coordinator.requestRandomWords(
-            VRFV2PlusClient.RandomWordsRequest({
-                keyHash: s_vrfConfig.keyHash, 
-                subId: s_vrfConfig.subscriptionId, 
-                requestConfirmations: 3, 
-                callbackGasLimit: s_vrfConfig.callbackGasLimit, 
-                numWords: 500,
-                extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({ nativePayment: false }))
-            })
-        );
+        // uint256 requestId = coordinator.requestRandomWords(
+        //     VRFV2PlusClient.RandomWordsRequest({
+        //         keyHash: s_vrfConfig.keyHash, 
+        //         subId: s_vrfConfig.subscriptionId, 
+        //         requestConfirmations: 3, 
+        //         callbackGasLimit: s_vrfConfig.callbackGasLimit, 
+        //         numWords: 500,
+        //         extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({ nativePayment: false }))
+        //     })
+        // );
 
-        s_vrfRequests[requestId] = msg.sender;
+        // s_vrfRequests[requestId] = msg.sender;
     }
 
     function fulfillRandomWords(
@@ -259,11 +259,14 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             revert Pit__InvalidMaxResplitHands();
         }
 
-        if (_rules.deckCount < 4 || _rules.deckCount > 8 || _rules.deckCount == 3) {
+        if (_rules.deckCount > 8 || _rules.deckCount == 3 || _rules.deckCount == 7) {
             revert Pit__InvalidDeckCount();
         }
         
         address table = Clones.clone(s_tableImplementation);
+        s_tableToManager[table] = msg.sender;
+        s_managerToTables[msg.sender].push(table);
+
         Table(payable(table)).initialize(
             msg.sender, 
             _maxPlayers,
@@ -272,19 +275,14 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             _token
         );
 
-        s_tableToManager[table] = msg.sender;
-        s_managerToTables[msg.sender].push(table);
-
         emit TableCreated(table, msg.sender, _betRange);
+    }
+
+    function getTables(address _manager) external view returns (address[] memory) {
+        return s_managerToTables[_manager];
     }
     
     function max(uint256 a, uint256 b) internal pure returns (uint256) {
         return a >= b ? a : b;
     }
-
-    receive() external payable handleDeposit(address(0), msg.value) {
-        emit Received(msg.sender, msg.value);
-    }
-
-    // mapping (address _dealer => mapping (uint _role => Game _game)) public currentGames
 }
