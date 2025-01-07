@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
-import {console} from "forge-std/console.sol";
 import {TableHarness} from "./util/TableHarness.sol";
 import {PitHarness} from "./util/PitHarness.sol";
 import {ERC20Mock} from "./util/ERC20Mock.sol";
@@ -53,8 +52,5 @@ contract PitTest is Test {
             ), 
             token
         );
-
-        console.log("Tables...");
-        console.log(pit.getTables().length);
     }
 }

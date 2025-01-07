@@ -104,7 +104,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     address public s_token;
     address public s_manager;
-    address[] s_players;
+    address[] public s_players;
     mapping(address => PlayerState) public s_playerToState;
     mapping(uint8 => address) public s_seatToPlayer;
     mapping(uint8 => address) public s_seatToWaitingPlayer;
@@ -204,6 +204,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         resetDrawableCards();
         refreshRandomWords();
+    }
+
+    function getTableInfo() external view returns(address token, uint8 playerCount) {
+        return (
+            s_token, 
+            uint8(s_players.length)
+        );
     }
 
     function setMaxPlayers(uint8 _maxPlayers) external onlyManager whenInactive whenUnlocked {
@@ -629,7 +636,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
                 // If player wins
                 if (handValue > dealerHandValue || s_dealerHand.status == HandStatus.Bust) {
-                    uint256 payout = handValue == 21 ? getBlackJackPayout(bet) : bet;
+                    bool isBlackjack = handValue == 21 && hand.cards.length == 2;
+                    uint256 payout = isBlackjack ? getBlackJackPayout(bet) : bet;
                     playerState.balance += payout;
                     earnings -= int256(payout);
                     continue;
