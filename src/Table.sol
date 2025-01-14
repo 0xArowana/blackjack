@@ -49,6 +49,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint256 balance;
     }
 
+    struct TableInfo {
+        address token;
+        Rules rules;
+        GameStatus gameStatus;
+        address[] players;
+        PlayerState[] playerStates;
+    }
+
     /// @notice Determines the hand value forward which the bet can be doubled
     enum DoubleRule {
         Any,
@@ -109,7 +117,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     mapping(uint8 => address) public s_seatToPlayer;
     mapping(uint8 => address) public s_seatToWaitingPlayer;
     uint256 public s_lockTimestamp;
-    GameStatus internal s_gameStatus;
+    GameStatus public s_gameStatus;
     Hand internal s_dealerHand;
     address internal s_currentPlayer;
     Rules internal s_rules;
@@ -206,11 +214,24 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         refreshRandomWords();
     }
 
-    function getTableInfo() external view returns(address token, uint8 playerCount) {
-        return (
-            s_token, 
-            uint8(s_players.length)
+    function getTableInfo() external view returns(TableInfo memory) {
+        PlayerState[] memory playerStates = new PlayerState[](s_players.length);
+
+        for (uint8 i = 0; i < s_players.length; i++) {
+            address player = s_players[i];
+            PlayerState memory playerState = s_playerToState[player];
+            playerStates[i] = playerState;
+        }
+
+        TableInfo memory tableInfo = TableInfo(
+            s_token,
+            s_rules,
+            s_gameStatus,
+            s_players,
+            playerStates
         );
+
+        return tableInfo;
     }
 
     function setMaxPlayers(uint8 _maxPlayers) external onlyManager whenInactive whenUnlocked {
@@ -683,7 +704,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         return _bet * 6 / factor;
     }
 
-    function getActiveHand() internal view returns (Hand storage, uint256) {
+    function getActiveHand() internal view returns (Hand storage hand, uint256 index) {
         Hand[] storage hands = s_playerToState[msg.sender].hands;
 
         for (uint256 i = 0; i < hands.length; i++) {
