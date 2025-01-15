@@ -136,6 +136,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     event BetsStarted();
     event GameStarted();
     event Hit(uint8 indexed card);
+    event PlayerSeated(address indexed player, uint8 indexed seat);
     event TableLocked();
 
     modifier onlyManager {
@@ -285,6 +286,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         } else {
             s_seatToWaitingPlayer[_seat] = msg.sender;
         }
+
+        emit PlayerSeated(msg.sender, _seat);
     }
 
     function leave() external whenInactiveOrBet whenUnlocked {
