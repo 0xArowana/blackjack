@@ -50,11 +50,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     struct TableInfo {
+        address manager;
         address token;
-        Rules rules;
         GameStatus gameStatus;
         address[] players;
         PlayerState[] playerStates;
+        Rules rules;
+        uint8 maxPlayers;
     }
 
     /// @notice Determines the hand value forward which the bet can be doubled
@@ -224,11 +226,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
 
         TableInfo memory tableInfo = TableInfo(
+            s_manager,
             s_token,
-            s_rules,
             s_gameStatus,
             s_players,
-            playerStates
+            playerStates,
+            s_rules,
+            s_maxPlayers
         );
 
         return tableInfo;
