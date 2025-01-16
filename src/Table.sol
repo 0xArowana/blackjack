@@ -185,7 +185,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     modifier whenUnlocked {
-        if (s_lockTimestamp == 0) {
+        if (s_lockTimestamp != 0) {
            revert Table__Locked();
         }
         _;
@@ -265,7 +265,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function sit(uint8 _seat) external whenUnlocked {
-        if (msg.sender == owner()) {
+        if (msg.sender == s_manager) {
             revert Table__InvalidPlayer();
         }
 
