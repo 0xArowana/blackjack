@@ -40,6 +40,9 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     mapping(address => address[]) public s_managerToTables;
     mapping(address => mapping(address => TokenState)) public s_managerToTokenToState;
 
+    // Players
+    mapping(address => address) public s_playerToTable;
+
     // Tables
     address s_tableImplementation;
     mapping(address => address) public s_tableToManager;
@@ -278,8 +281,20 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         emit TableCreated(table, msg.sender, _betRange);
     }
 
-    function getTables(address _manager) external view returns (address[] memory) {
+    function playerSeated(address _player) external onlyTable {
+        s_playerToTable[_player] = msg.sender;
+    }
+
+    function playerLeft(address _player) external onlyTable {
+        s_playerToTable[_player] = address(0);
+    }
+
+    function getManagerTables(address _manager) external view returns (address[] memory) {
         return s_managerToTables[_manager];
+    }
+
+    function getPlayerTable(address _player) external view returns (address) {
+        return s_playerToTable[_player];
     }
     
     function max(uint256 a, uint256 b) internal pure returns (uint256) {
