@@ -3,6 +3,7 @@ pragma solidity ^0.8.18;
 
 import {Script} from "forge-std/Script.sol";
 import {Pit} from "../src/Pit.sol";
+import {Table} from "../src/Table.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {ConfigHelper} from "./ConfigHelper.s.sol";
 import {Aave} from "./Interactions.s.sol";
@@ -22,7 +23,8 @@ contract DeployPit is Script {
             configHelper.getTokens(),
             address(0), // aave.getPool(configHelper.getPoolAddressesProvider()),
             PLAYER_TIMEOUT,
-            configHelper.getVrfConfig()
+            configHelper.getVrfConfig(),
+            address(new Table())
         );
 
         vm.stopBroadcast();

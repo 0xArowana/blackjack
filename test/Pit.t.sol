@@ -26,7 +26,8 @@ contract PitTest is Test {
                 0x0,
                 0,
                 0
-            )
+            ),
+            address(0)
         );
     }
 

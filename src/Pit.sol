@@ -119,7 +119,8 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         address[] memory _tokens,
         address _pool,
         uint256 _playerTimeout,
-        VrfConfig memory _vrfConfig
+        VrfConfig memory _vrfConfig,
+        address _tableImplementation
     ) public initializer {
         __UUPSUpgradeable_init();
         __Ownable_init(msg.sender);
@@ -129,8 +130,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         s_pool = _pool;
         s_playerTimeout = _playerTimeout;
         s_vrfConfig = _vrfConfig;
-        
-        s_tableImplementation = address(new Table());
+        s_tableImplementation = _tableImplementation;
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
