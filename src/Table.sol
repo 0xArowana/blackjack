@@ -51,6 +51,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     struct TableInfo {
+        address id;
         address manager;
         address token;
         GameStatus gameStatus;
@@ -236,6 +237,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
 
         TableInfo memory tableInfo = TableInfo(
+            address(this),
             s_manager,
             s_token,
             s_gameStatus,

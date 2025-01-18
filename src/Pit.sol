@@ -289,12 +289,20 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         s_playerToTable[_player] = address(0);
     }
 
-    function getManagerTables(address _manager) external view returns (address[] memory) {
-        return s_managerToTables[_manager];
+    function getManagerTableInfo(address _manager) external view returns (Table.TableInfo[] memory) {
+        address tables = s_managerToTables[_manager];
+        Table.TableInfo[] memory tableInfo = new Table.TableInfo[](tables.length);
+
+        for (uint8 i = 0; i < tables.length; i++) {
+            tableInfo[i] = Table(tables[i]).getTableInfo();
+        }
+
+        return tableInfo;
     }
 
-    function getPlayerTable(address _player) external view returns (address) {
-        return s_playerToTable[_player];
+    function getPlayerTableInfo(address _player) external view returns (Table.TableInfo memory) {
+        address table = s_playerToTable[_player];
+        return Table(table).getTableInfo();
     }
     
     function max(uint256 a, uint256 b) internal pure returns (uint256) {
