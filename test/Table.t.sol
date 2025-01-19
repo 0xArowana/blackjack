@@ -72,7 +72,7 @@ contract TableTest is Test {
 
         assertEq(table.owner(), address(pit));
         assertEq(table.s_manager(), manager);
-        assertEq(table.getMaxPlayers(), maxPlayers);
+        assertEq(table.getSeatCount(), maxPlayers);
         assertEq(keccak256(abi.encode(table.getBetRange())), keccak256(abi.encode(betRange)));
         assertEq(keccak256(abi.encode(table.getRules())), keccak256(abi.encode(rules)));
         assertEq(table.s_token(), token);
@@ -257,10 +257,6 @@ contract TableTest is Test {
 
         table.setGameStatus(Table.GameStatus.PlayerTurn);
 
-        address player = vm.randomAddress();
-        table.setCurrentPlayer(player);
-
-        vm.prank(player);
         table.hit();
     }
 

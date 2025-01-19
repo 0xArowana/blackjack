@@ -290,7 +290,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     }
 
     function getManagerTableInfo(address _manager) external view returns (Table.TableInfo[] memory) {
-        address tables = s_managerToTables[_manager];
+        address[] storage tables = s_managerToTables[_manager];
         Table.TableInfo[] memory tableInfo = new Table.TableInfo[](tables.length);
 
         for (uint8 i = 0; i < tables.length; i++) {
