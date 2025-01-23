@@ -15,10 +15,12 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__CurrencyNotEth();
     error Table__HandNotNineToEleven();
     error Table__HandNotTenToEleven();
-    error Table__InsufficientBet();
+    error Table__InvalidBetAmount();
     error Table__InvalidDebtClearanceAmount();
+    error Table__InvalidDeckCount();
+    error Table__InvalidMaxResplitHands();
     error Table__InvalidSeat();
-    error Table__InvalidMaxPlayers();
+    error Table__InvalidSeatCount();
     error Table__InvalidPlayer();
     error Table__Locked();
     error Table__NoCards();
@@ -27,7 +29,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__PlayerNotFound();
     error Table__SeatOccupied();
     error Table__BetAlreadyPlaced();
-    error Table__BetExceedsMax();
     error Table__BetLessThanMin();
     error Table__BettingInProgress();
     error Table__GameInProgress();
@@ -35,19 +36,19 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__NoActiveHand();
     error Table__NoBalanceAvailable();
     error Table__NotBetStatus();
-    error Table__NotCurrentPlayer();
+    error Table__NotCurrentSeat();
     error Table__NotInactiveStatus();
     error Table__NotManager();
     error Table__NotPlayerTurnStatus();
     error Table__CashOutTransferFailed();
     error Table__TokenTransferFailed();
 
-    /// @notice The seat, bet, hands, and balance of a player
-    struct PlayerState {
-        uint8 seat;
+    /// @notice The player, bet, hands, and balance of a seat
+    struct Seat {
+        address player;
         uint256 bet;
         Hand[] hands;
-        uint256 balance;
+        bool waiting;
     }
 
     struct TableInfo {
@@ -55,11 +56,15 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         address manager;
         address token;
         GameStatus gameStatus;
-        address[] players;
-        PlayerState[] playerStates;
+        SeatInfo[] seatInfo;
+        uint8 seatCount;
         Rules rules;
-        uint8 maxPlayers;
-        address[] waitingPlayers;
+    }
+
+    struct SeatInfo {
+        address player;
+        uint256 bet;
+        bool waiting;
     }
 
     /// @notice Determines the hand value forward which the bet can be doubled
@@ -117,18 +122,15 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     address public s_token;
     address public s_manager;
-    address[] public s_players;
-    mapping(address => PlayerState) public s_playerToState;
-    mapping(uint8 => address) public s_seatToPlayer;
-    mapping(uint8 => address) internal s_seatToWaitingPlayer;
-    mapping(address => uint8) internal s_waitingPlayerToSeat;
+    Seat[] internal s_seats;
+    mapping(address => uint256) internal s_playerToBalance;
     uint256 public s_lockTimestamp;
     GameStatus public s_gameStatus;
     Hand internal s_dealerHand;
-    address internal s_currentPlayer;
+    uint8 internal s_currentSeatIndex;
     Rules internal s_rules;
     BetRange internal s_betRange;
-    uint8 internal s_maxPlayers;
+    uint8 internal s_seatCount;
     uint256 internal s_debt;
     uint256 internal s_betTotal;
     uint256 internal s_gameMaxPayout;
@@ -150,18 +152,18 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         _;
     }
 
-    modifier onlyCurrentPlayer {
+    modifier onlyCurrentSeat {
         if (s_gameStatus != GameStatus.PlayerTurn) {
             revert Table__NotPlayerTurnStatus();
         }
-        if (msg.sender != s_currentPlayer) {
-            revert Table__NotCurrentPlayer();
+        if (msg.sender != s_seats[s_currentSeatIndex].player) {
+            revert Table__NotCurrentSeat();
         }
         _;
     }
 
     modifier whenEmpty {
-        if (s_players.length > 0) {
+        if (s_seats.length > 0) {
             revert Table__NotEmpty();
         }
         _;
@@ -202,17 +204,33 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         _;
     }
 
+    constructor() {
+        _disableInitializers();
+    }
+
     function initialize(
         address _manager,  
-        uint8 _maxPlayers,
+        uint8 _seatCount,
         BetRange memory _betRange,
         Rules memory _rules,
         address _token
     ) public initializer {
+        if (_seatCount < 1 || _seatCount > 7) {
+            revert Table__InvalidSeatCount();
+        }
+
+        if (_rules.maxResplitHands < 2 || _rules.maxResplitHands > 4) {
+            revert Table__InvalidMaxResplitHands();
+        }
+
+        if (_rules.deckCount > 8 || _rules.deckCount == 3 || _rules.deckCount == 7) {
+            revert Table__InvalidDeckCount();
+        }
+
         __Ownable_init(msg.sender);
 
         s_manager = _manager;
-        s_maxPlayers = _maxPlayers;
+        s_seatCount = _seatCount;
         s_betRange = _betRange;
         s_rules = _rules; // TODO: validate rules
         s_token = _token;
@@ -222,18 +240,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function getTableInfo() external view returns(TableInfo memory) {
-        PlayerState[] memory playerStates = new PlayerState[](s_players.length);
+        SeatInfo[] memory seatInfo;
 
-        for (uint8 i = 0; i < s_players.length; i++) {
-            address player = s_players[i];
-            PlayerState memory playerState = s_playerToState[player];
-            playerStates[i] = playerState;
-        }
+        for (uint8 i = 0; i < s_seats.length; i++) {
+            Seat storage seat = s_seats[i];
 
-        address[] memory waitingPlayers = new address[](s_maxPlayers);
-
-        for (uint8 i = 0; i < s_maxPlayers; i++) {
-            waitingPlayers[i] = s_seatToWaitingPlayer[i+1];
+            if (seat.player != address(0)) {
+                seatInfo[i] = SeatInfo(seat.player, seat.bet, seat.waiting);
+            }
         }
 
         TableInfo memory tableInfo = TableInfo(
@@ -241,22 +255,20 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             s_manager,
             s_token,
             s_gameStatus,
-            s_players,
-            playerStates,
-            s_rules,
-            s_maxPlayers,
-            waitingPlayers
+            seatInfo,
+            s_seatCount,
+            s_rules
         );
 
         return tableInfo;
     }
 
-    function setMaxPlayers(uint8 _maxPlayers) external onlyManager whenInactive whenUnlocked {
-        if (_maxPlayers < (s_players.length + 1) || _maxPlayers > 7) {
-            revert Table__InvalidMaxPlayers();
+    function setSeatCount(uint8 _seatCount) external onlyManager whenInactive whenEmpty whenUnlocked {
+        if (_seatCount < 1 || _seatCount > 7) {
+            revert Table__InvalidSeatCount();
         }
         
-        s_maxPlayers = _maxPlayers;
+        s_seatCount = _seatCount;
     }
     
     function setBetRange(BetRange memory _betRange) external onlyManager whenInactive whenUnlocked {
@@ -276,113 +288,103 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         emit BetsStarted();
     }
 
-    function sit(uint8 _seat) external whenUnlocked {
+    function sit(uint8 _index) external whenUnlocked {
         if (msg.sender == s_manager) {
             revert Table__InvalidPlayer();
         }
-
-        if (_seat > s_maxPlayers || _seat < 1) {
+        if (_index >= s_seatCount || _index < 0) {
             revert Table__InvalidSeat();
         }
-
-        if (s_seatToPlayer[_seat] != address(0) || s_seatToWaitingPlayer[_seat] != address(0)) {
+        if (s_seats[_index].player != address(0)) {
             revert Table__SeatOccupied();
         }
 
         Pit pit = Pit(payable(owner()));
+        address table = pit.s_playerToTable(msg.sender);
 
-        if (pit.getPlayerTable(msg.sender) != address(0)) {
+        if (table != address(0) && table != address(this)) {
             revert Table__PlayerAlreadySeated();
         }
 
-        bool isGameStarted = s_gameStatus != GameStatus.Inactive && s_gameStatus != GameStatus.Bet;
-
-        if (!isGameStarted) {
-            s_playerToState[msg.sender].seat = _seat;
-            s_seatToPlayer[_seat] = msg.sender;
-            s_players.push(msg.sender);
-        } else {
-            s_seatToWaitingPlayer[_seat] = msg.sender;
-            s_waitingPlayerToSeat[msg.sender] = _seat;
-        }
+        Seat storage seat = s_seats[_index];
+        seat.waiting = s_gameStatus != GameStatus.Inactive && s_gameStatus != GameStatus.Bet;
+        seat.player = msg.sender;
 
         pit.playerSeated(msg.sender);
-        emit PlayerSeated(msg.sender, _seat);
+        emit PlayerSeated(msg.sender, _index);
     }
 
-    function leave() external whenInactiveOrBet whenUnlocked {
-        uint8 seat = s_playerToState[msg.sender].seat;
+    function leave(uint8 _seatIndex) external whenInactiveOrBet whenUnlocked {
+        Seat storage seat = s_seats[_seatIndex];
 
-        if (seat == 0) {
-            revert Table__PlayerNotFound();
+        if (seat.player != msg.sender) {
+            revert Table__InvalidSeat();
         }
 
-        uint256 bet = s_playerToState[msg.sender].bet;
-
-        if (bet > 0) {
-            s_playerToState[msg.sender].balance += bet;
-            s_betTotal -= bet;
+        if (seat.bet > 0) {
+            s_playerToBalance[msg.sender] += seat.bet;
+            s_betTotal -= seat.bet;
         }
 
-        s_playerToState[msg.sender].seat = 0;
-        s_seatToPlayer[seat] = address(0);
+        seat.player = address(0);
+        seat.bet = 0;
+        delete seat.hands;
+        seat.waiting = false;
 
-        bool playerFound = false;
+        bool playerAtTable = false;
         bool missingBet = false;
 
-        for (uint8 i = 0; i < s_players.length; i++) {
-            address player = s_players[i];
-
-            if (playerFound) {
-                s_players[i - 1] = s_players[i];
-            } else if (msg.sender == player) {
-                playerFound = true;
+        for (uint8 i = 0; i < s_seats.length; i++) {
+            Seat storage s = s_seats[i];
+            
+            if (s.player == msg.sender) {
+                playerAtTable = true;
             }
 
-            if (s_playerToState[player].bet == 0 && player != msg.sender) {
+            if (s.bet == 0) {
                 missingBet = true;
             }
         }
 
-        s_players.pop();
-
-        Pit(payable(owner())).playerLeft(msg.sender);
+        if (!playerAtTable) {
+            // TODO: Should remaining balance value be stored on pit to notify user?
+            Pit(payable(owner())).playerLeft(msg.sender);
+        }
 
         // Start game if all remaining players placed bets
-        if (s_players.length > 0 && s_gameStatus == GameStatus.Bet && !missingBet) {
+        if (s_gameStatus == GameStatus.Bet && !missingBet) {
             finalizeBets();
         }
     }
 
-    function leaveWaiting() external {
-        uint8 seat = s_waitingPlayerToSeat[msg.sender];
+    function placeBet(uint256 _amount, uint8 _seatIndex) external payable whenBet whenUnlocked checkCurrency nonReentrant {
+        Seat storage seat = s_seats[_seatIndex];
 
-        if (seat == 0) {
-            revert Table__PlayerNotFound();
+        if (seat.player != msg.sender) {
+            revert Table__InvalidSeat();
         }
-
-        s_seatToWaitingPlayer[seat] = address(0);
-        s_waitingPlayerToSeat[msg.sender] = 0;
-        Pit(payable(owner())).playerLeft(msg.sender);
-    }
-
-    function placeBet(uint256 _amount) external payable whenBet whenUnlocked checkCurrency nonReentrant {
-        if (s_playerToState[msg.sender].bet > 0) {
+        if (seat.bet > 0) {
             revert Table__BetAlreadyPlaced();
         }
 
         uint256 amount = s_token != address(0) ? _amount : msg.value;
 
-        if (amount == 0 || amount < s_betRange.min) {
-            revert Table__InsufficientBet();
-        }
-        if (amount > s_betRange.max) {
-            revert Table__BetExceedsMax();
+        if (amount < s_betRange.min || amount > s_betRange.max) {
+            revert Table__InvalidBetAmount();
         }
 
-        PlayerState storage state = s_playerToState[msg.sender];
-        state.bet = amount;
+        // All bets from the same player must be the same amount
+        for (uint8 i = 0; i < s_seats.length; i++) {
+            if (i == _seatIndex) continue;
 
+            Seat storage s = s_seats[i];
+            
+            if (s.player == msg.sender && s.bet > 0 && s.bet != amount) {
+                revert Table__InvalidBetAmount();
+            }
+        }
+
+        seat.bet = amount;
         s_betTotal += amount;
 
         if (s_token != address(0)) {
@@ -393,15 +395,15 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             }
         }
 
-        for (uint8 i = 0; i < s_players.length; i++) {
-            address playerAddress = s_players[i];
-            if (s_playerToState[playerAddress].bet == 0) return;
+        for (uint8 i = 0; i < s_seats.length; i++) {
+            Seat storage s = s_seats[i];
+            if (s.player != address(0) && s.bet == 0) return;
         }
 
         finalizeBets();
     }
 
-    function double() payable external onlyCurrentPlayer whenUnlocked checkCurrency nonReentrant {
+    function double() payable external onlyCurrentSeat whenUnlocked checkCurrency nonReentrant {
         (Hand storage hand,) = getActiveHand();
 
         if (hand.cards.length > 2) {
@@ -420,7 +422,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         increaseBet();
     }
 
-    function hit() external onlyCurrentPlayer whenUnlocked {
+    function hit() external onlyCurrentSeat whenUnlocked {
         (Hand storage hand, uint256 index) = getActiveHand();
         drawCard(hand);
 
@@ -431,13 +433,15 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function stand() external onlyCurrentPlayer whenUnlocked {
+    function stand() external onlyCurrentSeat whenUnlocked {
         (, uint256 index) = getActiveHand();
         finishHand(index, HandStatus.Stand);
     }
 
-    function split() payable external onlyCurrentPlayer whenUnlocked checkCurrency nonReentrant {
-        if (s_playerToState[msg.sender].hands.length == s_rules.maxResplitHands) {
+    function split() payable external onlyCurrentSeat whenUnlocked checkCurrency nonReentrant {
+        Seat storage seat = s_seats[s_currentSeatIndex];
+
+        if (seat.hands.length == s_rules.maxResplitHands) {
             revert Table__MaxResplitHandsReached();
         }
         
@@ -462,7 +466,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         Hand memory newHand;
         newHand.minValue = cardMinValue;
-        Hand[] storage hands = s_playerToState[msg.sender].hands;
+        Hand[] storage hands = seat.hands;
         hands.push(newHand);
         hands[hands.length - 1].cards.push(card2);
     }
@@ -483,13 +487,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function cashOut() external whenUnlocked nonReentrant {
-        uint256 amount = s_playerToState[msg.sender].balance;
+        uint256 amount = s_playerToBalance[msg.sender];
 
         if (amount == 0) {
             revert Table__NoBalanceAvailable();
         }
 
-        s_playerToState[msg.sender].balance = 0;
+        // CEI: Zero out balance before external calls
+        s_playerToBalance[msg.sender] = 0;
 
         bool success;
 
@@ -518,9 +523,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function startGame() internal {
-        for (uint8 i = 0; i < s_players.length; i++) {
-            address player = s_players[i];
-            Hand storage hand = s_playerToState[player].hands[0];
+        for (uint8 i = 0; i < s_seats.length; i++) {
+            Seat storage seat = s_seats[i];
+            if (seat.player == address(0)) continue;
+
+            Hand storage hand = seat.hands[0];
             drawCard(hand);
             drawCard(hand);
         }
@@ -614,17 +621,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function increaseBet() internal {
-        PlayerState storage state = s_playerToState[msg.sender];
-        uint256 amount = state.bet;
+        uint256 amount = s_seats[s_currentSeatIndex].bet;
 
+        // CEI: Update bet total before external calls
         s_betTotal += amount;
 
         if (s_token == address(0)) {
-            if (msg.value < amount) {
-                revert Table__InsufficientBet();
-            }
-            if (msg.value > amount) {
-                revert Table__BetExceedsMax();
+            if (msg.value < amount || msg.value > amount) {
+                revert Table__InvalidBetAmount();
             }
         } else {
             bool success = IERC20(s_token).transferFrom(msg.sender, address(this), amount);
@@ -636,7 +640,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function finishHand(uint256 _index, HandStatus _status) internal {
-        Hand[] storage hands = s_playerToState[msg.sender].hands;
+        Hand[] storage hands = s_seats[s_currentSeatIndex].hands;
         hands[_index].status = _status;
 
         if (_index == hands.length - 1) {
@@ -648,21 +652,20 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function nextTurn() internal {
-        uint256 playerIndex;
+        uint8 nextSeatIndex;
 
-        for (uint256 i = 0; i < s_players.length; i++) {
-            if (s_players[i] == s_currentPlayer) {
-                playerIndex = i;
+        for (uint8 i = s_currentSeatIndex + 1; i < s_seats.length; i++) {
+            if (isSeatActive(s_seats[i])) {
+                nextSeatIndex = i;
                 break;
             } 
         }
 
-        if (playerIndex == s_players.length) {
+        s_currentSeatIndex = nextSeatIndex;
+
+        if (nextSeatIndex == 0) {
             s_gameStatus = GameStatus.DealerTurn;
-            s_currentPlayer = address(0);
             dealerPlay();
-        } else {
-            s_currentPlayer = s_players[playerIndex + 1];
         }
     }
 
@@ -681,12 +684,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         int256 earnings;
 
-        for (uint8 i = 0; i < s_players.length; i++) {
-            PlayerState storage playerState = s_playerToState[s_players[i]];
+        for (uint8 i = 0; i < s_seats.length; i++) {
+            Seat storage seat = s_seats[i];
+            if (!isSeatActive(seat)) continue;
 
-            for (uint j = 0; j < playerState.hands.length; j++) {
-                Hand memory hand = playerState.hands[j];
-                uint256 bet = hand.doubled ? playerState.bet * 2 : playerState.bet;
+            for (uint j = 0; j < seat.hands.length; j++) {
+                Hand memory hand = seat.hands[j];
+                uint256 bet = hand.doubled ? seat.bet * 2 : seat.bet;
 
                 // If hand already busted
                 if (hand.status == HandStatus.Bust) {
@@ -700,14 +704,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
                 if (handValue > dealerHandValue || s_dealerHand.status == HandStatus.Bust) {
                     bool isBlackjack = handValue == 21 && hand.cards.length == 2;
                     uint256 payout = isBlackjack ? getBlackJackPayout(bet) : bet;
-                    playerState.balance += payout;
+                    s_playerToBalance[seat.player] += payout;
                     earnings -= int256(payout);
                     continue;
                 }
 
                 // If push/tie
                 if (handValue == dealerHandValue) {
-                    playerState.balance += bet;
+                    s_playerToBalance[seat.player] += bet;
                 }
             }
         }
@@ -716,7 +720,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (earnings < 0) {
             s_debt = uint256(-earnings);
-            s_lockTimestamp = block.timestamp; 
+            s_lockTimestamp = block.timestamp; // Lock will be removed when Pit calls clearDebt
         } else if (earnings > 0) {
             if (s_token == address(0)) {
                 ethEarnings = uint256(earnings);
@@ -728,30 +732,22 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         Pit(payable(owner())).gameEnded{value: ethEarnings}(s_token, earnings, s_gameMaxPayout);
         s_gameMaxPayout = 0;
 
-        // Reset player bet and hands or seat waiting player
-        for (uint8 i = 1; i <= s_maxPlayers; i++) {
-            address player = s_seatToPlayer[i];
+        // Reset bets and hands, and seat waiting players
+        for (uint8 i = 1; i <= s_seats.length; i++) {
+            Seat storage seat = s_seats[i];
+            if (seat.player == address(0)) continue;
 
-            if (player != address(0)) {
-                PlayerState storage playerState = s_playerToState[player];
-                delete playerState.hands;
-                playerState.bet = 0;
-                continue;
-            } 
-            
-            address waitingPlayer = s_seatToWaitingPlayer[i];
-
-            if (waitingPlayer != address(0)) {
-                s_playerToState[waitingPlayer].seat = i;
-                s_seatToPlayer[i] = waitingPlayer;
-                s_players.push(waitingPlayer);
-                s_seatToWaitingPlayer[i] = address(0);
-                s_waitingPlayerToSeat[waitingPlayer] = 0;
-            }
+            seat.bet = 0;
+            delete seat.hands;
+            seat.waiting = false;
         }
 
         bool skipInactive = s_continuousPlay && s_lockTimestamp == 0;
         s_gameStatus = skipInactive ? GameStatus.Bet : GameStatus.Inactive;
+    }
+
+    function isSeatActive(Seat storage _seat) internal view returns (bool) {
+        return _seat.player != address(0) && !_seat.waiting;
     }
 
     function getBlackJackPayout(uint256 _bet) internal view returns (uint256) {
@@ -760,7 +756,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function getActiveHand() internal view returns (Hand storage hand, uint256 index) {
-        Hand[] storage hands = s_playerToState[msg.sender].hands;
+        Hand[] storage hands = s_seats[s_currentSeatIndex].hands;
 
         for (uint256 i = 0; i < hands.length; i++) {
             if (hands[i].status == HandStatus.Active) {

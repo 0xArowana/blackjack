@@ -4,8 +4,8 @@ pragma solidity ^0.8.18;
 import {Table} from "../../src/Table.sol";
 
 contract TableHarness is Table {
-    function getMaxPlayers() external view returns (uint8) {
-        return s_maxPlayers;
+    function getSeatCount() external view returns (uint8) {
+        return s_seatCount;
     }
 
     function getBetRange() external view returns (BetRange memory) {
@@ -29,7 +29,7 @@ contract TableHarness is Table {
     }
 
     function setBalance(address _player, uint256 _amount) external {
-        s_playerToState[_player].balance = _amount;
+        s_playerToBalance[_player] = _amount;
     }
 
     function setTestToken(address _token) external {
@@ -48,8 +48,8 @@ contract TableHarness is Table {
         s_betTotal = _betTotal;
     }
 
-    function setCurrentPlayer(address _player) external {
-        s_currentPlayer = _player;
+    function setCurrentSeatIndex(uint8 _index) external {
+        s_currentSeatIndex = _index;
     }
 
     function callFinalizeBets() external {
