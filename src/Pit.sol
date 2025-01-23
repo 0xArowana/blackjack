@@ -17,10 +17,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     error Pit__CurrencyNotEth();
     error Pit__InsufficientBalance();
     error Pit__InsufficientManagerBalance();
-    error Pit__InvalidMaxPlayers();
-    error Pit__InvalidDeckCount();
     error Pit__InvalidEarningsAmountSent();
-    error Pit__InvalidMaxResplitHands();
     error Pit__NotApprovedToken();
     error Pit__NotManager();
     error Pit__NotTable();
@@ -113,6 +110,10 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         }
 
         s_managerToTokenToState[msg.sender][_token].balance = newBalance;
+    }
+
+    constructor() {
+        _disableInitializers();
     }
 
     function initialize(
@@ -249,30 +250,18 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     }
 
     function createTable(
-        uint8 _maxPlayers,
+        uint8 _seatCount,
         Table.BetRange memory _betRange,
         Table.Rules memory _rules,
         address _token
-    ) external approveToken(_token, true) {
-        if (_maxPlayers < 1 || _maxPlayers > 7) {
-            revert Pit__InvalidMaxPlayers();
-        }
-
-        if (_rules.maxResplitHands < 2 || _rules.maxResplitHands > 4) {
-            revert Pit__InvalidMaxResplitHands();
-        }
-
-        if (_rules.deckCount > 8 || _rules.deckCount == 3 || _rules.deckCount == 7) {
-            revert Pit__InvalidDeckCount();
-        }
-        
+    ) external approveToken(_token, true) {        
         address table = Clones.clone(s_tableImplementation);
         s_tableToManager[table] = msg.sender;
         s_managerToTables[msg.sender].push(table);
 
         Table(payable(table)).initialize(
             msg.sender, 
-            _maxPlayers,
+            _seatCount,
             _betRange,
             _rules,
             _token
