@@ -29,10 +29,26 @@ contract TableTest is Test {
         address manager = vm.randomAddress();
         pit.setTableToManager(address(table), manager);
 
-        Table.Rules memory rules;
-        Table.BetRange memory betRange;
+        Table.Rules memory rules = Table.Rules(
+            2, // deckCount
+            false, // dealerHitOnSoft17
+            false, // allowDoubleAfterSplit
+            Table.DoubleRule.Any, // doubleRule
+            3, // maxResplitHands
+            true, // allowResplitAces
+            true, // allowHitSplitAces
+            true, // allowLateSurrender
+            true, // allowInsurance
+            false // sixToFive
+        );
         vm.prank(address(pit));
-        table.initialize(manager, 0, betRange, rules, address(0));
+        table.initialize(
+            manager, 
+            7, 
+            Table.BetRange(1, 100), 
+            rules, 
+            address(0)
+        );
         address token = vm.randomAddress();
         table.setTestToken(token);
         
@@ -258,6 +274,12 @@ contract TableTest is Test {
         table.setGameStatus(Table.GameStatus.PlayerTurn);
 
         table.hit();
+    }
+
+    function test_sit() public {
+        fullSetup();
+
+        table.sit(1);
     }
 
     // function test_drawCards() public {

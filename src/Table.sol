@@ -56,7 +56,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         address manager;
         address token;
         GameStatus gameStatus;
-        SeatInfo[] seatInfo;
+        SeatInfo[] seats;
         uint8 seatCount;
         Rules rules;
     }
@@ -122,7 +122,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     address public s_token;
     address public s_manager;
-    Seat[] internal s_seats;
+    mapping (uint8 => Seat) internal s_seats;
     mapping(address => uint256) internal s_playerToBalance;
     uint256 public s_lockTimestamp;
     GameStatus public s_gameStatus;
@@ -163,8 +163,10 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     modifier whenEmpty {
-        if (s_seats.length > 0) {
-            revert Table__NotEmpty();
+        for (uint8 i = 0; i < 7; i++) {
+            if (s_seats[i].player != address(0)) {
+                revert Table__NotEmpty();
+            }
         }
         _;
     }
@@ -204,9 +206,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         _;
     }
 
-    constructor() {
-        _disableInitializers();
-    }
+    // constructor() {
+    //     _disableInitializers();
+    // }
 
     function initialize(
         address _manager,  
@@ -242,7 +244,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     function getTableInfo() external view returns(TableInfo memory) {
         SeatInfo[] memory seatInfo;
 
-        for (uint8 i = 0; i < s_seats.length; i++) {
+        for (uint8 i = 0; i < s_seatCount; i++) {
             Seat storage seat = s_seats[i];
 
             if (seat.player != address(0)) {
@@ -334,7 +336,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         bool playerAtTable = false;
         bool missingBet = false;
 
-        for (uint8 i = 0; i < s_seats.length; i++) {
+        for (uint8 i = 0; i < s_seatCount; i++) {
             Seat storage s = s_seats[i];
             
             if (s.player == msg.sender) {
@@ -374,7 +376,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
 
         // All bets from the same player must be the same amount
-        for (uint8 i = 0; i < s_seats.length; i++) {
+        for (uint8 i = 0; i < s_seatCount; i++) {
             if (i == _seatIndex) continue;
 
             Seat storage s = s_seats[i];
@@ -395,7 +397,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             }
         }
 
-        for (uint8 i = 0; i < s_seats.length; i++) {
+        for (uint8 i = 0; i < s_seatCount; i++) {
             Seat storage s = s_seats[i];
             if (s.player != address(0) && s.bet == 0) return;
         }
@@ -523,7 +525,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function startGame() internal {
-        for (uint8 i = 0; i < s_seats.length; i++) {
+        for (uint8 i = 0; i < s_seatCount; i++) {
             Seat storage seat = s_seats[i];
             if (seat.player == address(0)) continue;
 
@@ -654,7 +656,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     function nextTurn() internal {
         uint8 nextSeatIndex;
 
-        for (uint8 i = s_currentSeatIndex + 1; i < s_seats.length; i++) {
+        for (uint8 i = s_currentSeatIndex + 1; i < s_seatCount; i++) {
             if (isSeatActive(s_seats[i])) {
                 nextSeatIndex = i;
                 break;
@@ -684,7 +686,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         int256 earnings;
 
-        for (uint8 i = 0; i < s_seats.length; i++) {
+        for (uint8 i = 0; i < s_seatCount; i++) {
             Seat storage seat = s_seats[i];
             if (!isSeatActive(seat)) continue;
 
@@ -733,7 +735,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_gameMaxPayout = 0;
 
         // Reset bets and hands, and seat waiting players
-        for (uint8 i = 1; i <= s_seats.length; i++) {
+        for (uint8 i = 1; i <= s_seatCount; i++) {
             Seat storage seat = s_seats[i];
             if (seat.player == address(0)) continue;
 
