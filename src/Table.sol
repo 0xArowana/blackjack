@@ -143,6 +143,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     event GameStarted();
     event Hit(uint8 indexed card);
     event PlayerSeated(address indexed player, uint8 indexed seat);
+    event PlayerLeft(address indexed player, uint8 indexed seat);
     event TableLocked();
 
     modifier onlyManager {
@@ -242,14 +243,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function getTableInfo() external view returns(TableInfo memory) {
-        SeatInfo[] memory seatInfo;
+        SeatInfo[] memory seats = new SeatInfo[](s_seatCount);
 
         for (uint8 i = 0; i < s_seatCount; i++) {
             Seat storage seat = s_seats[i];
-
-            if (seat.player != address(0)) {
-                seatInfo[i] = SeatInfo(seat.player, seat.bet, seat.waiting);
-            }
+            seats[i] = SeatInfo(seat.player, seat.bet, seat.waiting);
         }
 
         TableInfo memory tableInfo = TableInfo(
@@ -257,7 +255,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             s_manager,
             s_token,
             s_gameStatus,
-            seatInfo,
+            seats,
             s_seatCount,
             s_rules
         );
@@ -316,8 +314,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         emit PlayerSeated(msg.sender, _index);
     }
 
-    function leave(uint8 _seatIndex) external whenInactiveOrBet whenUnlocked {
-        Seat storage seat = s_seats[_seatIndex];
+    // TODO: Accept multiple indices (allows leaving table entirely in one transaction)
+    function leave(uint8 _index) external whenInactiveOrBet whenUnlocked {
+        Seat storage seat = s_seats[_index];
 
         if (seat.player != msg.sender) {
             revert Table__InvalidSeat();
@@ -353,56 +352,56 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             Pit(payable(owner())).playerLeft(msg.sender);
         }
 
+        emit PlayerLeft(msg.sender, _index);
+
         // Start game if all remaining players placed bets
         if (s_gameStatus == GameStatus.Bet && !missingBet) {
             finalizeBets();
         }
     }
 
-    function placeBet(uint256 _amount, uint8 _seatIndex) external payable whenBet whenUnlocked checkCurrency nonReentrant {
-        Seat storage seat = s_seats[_seatIndex];
-
-        if (seat.player != msg.sender) {
-            revert Table__InvalidSeat();
-        }
-        if (seat.bet > 0) {
-            revert Table__BetAlreadyPlaced();
-        }
-
+    function placeBet(uint256 _amount) external payable whenBet whenUnlocked checkCurrency nonReentrant {
         uint256 amount = s_token != address(0) ? _amount : msg.value;
 
         if (amount < s_betRange.min || amount > s_betRange.max) {
             revert Table__InvalidBetAmount();
         }
 
-        // All bets from the same player must be the same amount
-        for (uint8 i = 0; i < s_seatCount; i++) {
-            if (i == _seatIndex) continue;
+        uint256 totalAmount = 0;
+        bool missingBet = false;
 
-            Seat storage s = s_seats[i];
-            
-            if (s.player == msg.sender && s.bet > 0 && s.bet != amount) {
-                revert Table__InvalidBetAmount();
+        for (uint8 i = 0; i < s_seatCount; i++) {
+            Seat storage seat = s_seats[i];
+
+            if (seat.player == msg.sender) {
+                if  (seat.bet > 0) {
+                    revert Table__BetAlreadyPlaced();
+                }
+
+                seat.bet = amount;
+                totalAmount += amount;
+            } else if (seat.bet == 0) {
+                missingBet = true;
             }
         }
 
-        seat.bet = amount;
-        s_betTotal += amount;
+        s_betTotal += totalAmount;
 
-        if (s_token != address(0)) {
-            bool success = IERC20(s_token).transferFrom(msg.sender, address(this), _amount);
+        if (s_token == address(0)) {
+            if (msg.value != totalAmount) {
+                revert Table__InvalidBetAmount();
+            }
+        } else {
+            bool success = IERC20(s_token).transferFrom(msg.sender, address(this), totalAmount);
 
             if (!success) {
                 revert Table__TokenTransferFailed();
             }
         }
 
-        for (uint8 i = 0; i < s_seatCount; i++) {
-            Seat storage s = s_seats[i];
-            if (s.player != address(0) && s.bet == 0) return;
+        if (!missingBet) {
+            finalizeBets();
         }
-
-        finalizeBets();
     }
 
     function double() payable external onlyCurrentSeat whenUnlocked checkCurrency nonReentrant {

@@ -209,20 +209,20 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     }
 
     function requestRandomWords() external onlyTable {
-        // IVRFCoordinatorV2Plus coordinator = IVRFCoordinatorV2Plus(s_vrfConfig.coordinator);
+        IVRFCoordinatorV2Plus coordinator = IVRFCoordinatorV2Plus(s_vrfConfig.coordinator);
 
-        // uint256 requestId = coordinator.requestRandomWords(
-        //     VRFV2PlusClient.RandomWordsRequest({
-        //         keyHash: s_vrfConfig.keyHash, 
-        //         subId: s_vrfConfig.subscriptionId, 
-        //         requestConfirmations: 3, 
-        //         callbackGasLimit: s_vrfConfig.callbackGasLimit, 
-        //         numWords: 500,
-        //         extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({ nativePayment: false }))
-        //     })
-        // );
+        uint256 requestId = coordinator.requestRandomWords(
+            VRFV2PlusClient.RandomWordsRequest({
+                keyHash: s_vrfConfig.keyHash, 
+                subId: s_vrfConfig.subscriptionId, 
+                requestConfirmations: 3, 
+                callbackGasLimit: s_vrfConfig.callbackGasLimit, 
+                numWords: 500,
+                extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({ nativePayment: false }))
+            })
+        );
 
-        // s_vrfRequests[requestId] = msg.sender;
+        s_vrfRequests[requestId] = msg.sender;
     }
 
     function fulfillRandomWords(

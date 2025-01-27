@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
+import {console} from "forge-std/console.sol";
 import {TableHarness} from "./util/TableHarness.sol";
 import {PitHarness} from "./util/PitHarness.sol";
 import {ERC20Mock} from "./util/ERC20Mock.sol";
@@ -280,6 +281,14 @@ contract TableTest is Test {
         fullSetup();
 
         table.sit(1);
+    }
+
+    function test_getTableInfo() public {
+        fullSetup();
+        vm.prank(vm.randomAddress());
+        table.sit(3);
+        Table.SeatInfo[] memory seats = table.getTableInfo().seats;
+        console.log("TABLE INFO... %d %s", seats.length, seats[3].player);
     }
 
     // function test_drawCards() public {
