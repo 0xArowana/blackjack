@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {console} from "forge-std/console.sol";
+import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {TableHarness} from "./util/TableHarness.sol";
 import {PitHarness} from "./util/PitHarness.sol";
 import {ERC20Mock} from "./util/ERC20Mock.sol";
@@ -23,7 +24,9 @@ contract TableTest is Test {
         );
 
         vm.prank(address(pit));
-        table = new TableHarness();
+
+        address tableImpl = address(new TableHarness());
+        table = TableHarness(Clones.clone(tableImpl));
     }
 
     function fullSetup() internal returns (Table.Rules memory, address, address) {
@@ -50,7 +53,7 @@ contract TableTest is Test {
             rules, 
             address(0)
         );
-        address token = vm.randomAddress();
+        address token = address(new ERC20Mock());
         table.setTestToken(token);
         
         uint256[] memory words = new uint256[](10);
@@ -333,7 +336,11 @@ contract TableTest is Test {
     //     assertEq(hand4.length, 0);
     // }
 
-    // function test_placeBet() public {
-    //     game.placeBet(90);
-    // }
+    function test_placeBet() public {
+        fullSetup();
+
+        table.setGameStatus(Table.GameStatus.Bet);
+
+        table.placeBet(90);
+    }
 }

@@ -45,7 +45,7 @@ contract ConfigHelper is Script {
         address[] memory tokens = new address[](1);
         
         if (block.chainid == 421614) {
-            tokens[0] = 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d;
+            tokens[0] = 0x344C87F7C962219B15318be8238F0543eE0db83E;
         } else if (block.chainid == 11155111) {
             tokens[0] = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
         }

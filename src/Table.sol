@@ -144,6 +144,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     event Hit(uint8 indexed card);
     event PlayerSeated(address indexed player, uint8 indexed seat);
     event PlayerLeft(address indexed player, uint8 indexed seat);
+    event BetPlaced(address indexed player, uint256 indexed amount);
     event TableLocked();
 
     modifier onlyManager {
@@ -207,9 +208,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         _;
     }
 
-    // constructor() {
-    //     _disableInitializers();
-    // }
+    constructor() {
+        _disableInitializers();
+    }
 
     function initialize(
         address _manager,  
@@ -398,6 +399,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
                 revert Table__TokenTransferFailed();
             }
         }
+
+        emit BetPlaced(msg.sender, _amount);
 
         if (!missingBet) {
             finalizeBets();
