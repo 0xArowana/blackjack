@@ -58,6 +58,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         GameStatus gameStatus;
         SeatInfo[] seats;
         uint8 seatCount;
+        BetRange betRange;
         Rules rules;
     }
 
@@ -258,6 +259,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             s_gameStatus,
             seats,
             s_seatCount,
+            s_betRange,
             s_rules
         );
 
@@ -370,6 +372,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         uint256 totalAmount = 0;
         bool missingBet = false;
+        bool playerFound = false;
 
         for (uint8 i = 0; i < s_seatCount; i++) {
             Seat storage seat = s_seats[i];
@@ -381,9 +384,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
                 seat.bet = amount;
                 totalAmount += amount;
+                playerFound = true;
             } else if (seat.bet == 0) {
                 missingBet = true;
             }
+        }
+
+        if (!playerFound) {
+            revert Table__PlayerNotFound();
         }
 
         s_betTotal += totalAmount;

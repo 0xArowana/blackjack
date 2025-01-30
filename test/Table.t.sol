@@ -341,6 +341,8 @@ contract TableTest is Test {
 
         table.setGameStatus(Table.GameStatus.Bet);
 
+        vm.startPrank(vm.randomAddress());
+        table.sit(2);
         table.placeBet(90);
     }
 }
