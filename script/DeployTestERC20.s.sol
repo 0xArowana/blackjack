@@ -5,7 +5,7 @@ import {Script} from "forge-std/Script.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract DeployTestERC20 is Script {
-    uint256 public constant INITIAL_SUPPLY = 1000000;
+    uint256 public constant INITIAL_SUPPLY = 1000000e18;
     function run() external returns (address) {
         vm.startBroadcast();
         TestERC20 token = new TestERC20(INITIAL_SUPPLY);
