@@ -377,6 +377,10 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         for (uint8 i = 0; i < s_seatCount; i++) {
             Seat storage seat = s_seats[i];
 
+            if (seat.player == address(0)) {
+                continue;
+            }
+
             if (seat.player == msg.sender) {
                 if  (seat.bet > 0) {
                     revert Table__BetAlreadyPlaced();

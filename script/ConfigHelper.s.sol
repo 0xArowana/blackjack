@@ -45,13 +45,10 @@ contract ConfigHelper is Script {
         address[] memory tokens = new address[](1);
         
         if (block.chainid == 421614) {
-            tokens[0] = 0x344C87F7C962219B15318be8238F0543eE0db83E;
+            tokens[0] = 0xeC12Ffe943b53DF4884A55b14168553d43eA28c7;
         } else if (block.chainid == 11155111) {
             tokens[0] = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
         }
-
-        console.log("TOKENS.....");
-        console.logAddress(tokens[0]);
 
         return tokens;
     }
