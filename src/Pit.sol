@@ -246,7 +246,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         }
 
         // TODO: Sort out Aave accounting
-        IPool(s_pool).supply(_token, _amount, address(this), 0);
+        // IPool(s_pool).supply(_token, _amount, address(this), 0);
     }
 
     function createTable(
@@ -287,6 +287,10 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         }
 
         return tableInfo;
+    }
+
+    function getManagerTokenState(address _manager, address _token) external view returns (TokenState memory) {
+        return s_managerToTokenToState[_manager][_token];
     }
 
     function getPlayerTableInfo(address _player) external view returns (Table.TableInfo memory) {

@@ -15,6 +15,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__CurrencyNotEth();
     error Table__HandNotNineToEleven();
     error Table__HandNotTenToEleven();
+    error Table__InsufficientManagerBalance();
     error Table__InvalidBetAmount();
     error Table__InvalidDebtClearanceAmount();
     error Table__InvalidDeckCount();
@@ -60,6 +61,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint8 seatCount;
         BetRange betRange;
         Rules rules;
+        uint256 lockTimestamp;
     }
 
     struct SeatInfo {
@@ -218,7 +220,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint8 _seatCount,
         BetRange memory _betRange,
         Rules memory _rules,
-        address _token
+        address _token,
+        uint256 _startingAmount
     ) public initializer {
         if (_seatCount < 1 || _seatCount > 7) {
             revert Table__InvalidSeatCount();
@@ -233,6 +236,15 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
 
         __Ownable_init(msg.sender);
+
+        Pit pit = Pit(payable(msg.sender));
+        (uint256 balance, uint256 maxPayout) = pit.s_managerToTokenToState(_manager, s_token);
+        uint256 availableBalance = balance - maxPayout;
+        uint256 maxBetTotal = _betRange.max * _seatCount;
+
+        if (availableBalance < getMaxPayout(maxBetTotal)) {
+            revert Table__InsufficientManagerBalance();
+        }
 
         s_manager = _manager;
         s_seatCount = _seatCount;
@@ -260,7 +272,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             seats,
             s_seatCount,
             s_betRange,
-            s_rules
+            s_rules,
+            s_lockTimestamp
         );
 
         return tableInfo;
@@ -572,14 +585,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         Pit pit = Pit(payable(owner()));
         (uint256 balance, uint256 maxPayout) = pit.s_managerToTokenToState(s_manager, s_token);
 
-        uint256 gameMaxPayout = getBlackJackPayout(s_betTotal);
-
-        if (s_rules.allowDoubleAfterSplit) {
-            gameMaxPayout *= 2 * s_rules.maxResplitHands;
-        } else {
-            gameMaxPayout *= (s_rules.maxResplitHands + 1);
-        }
-
+        uint256 gameMaxPayout = getMaxPayout(s_betTotal);
         s_gameMaxPayout = gameMaxPayout;
         pit.increaseMaxPayout(gameMaxPayout, s_token);
 
@@ -760,6 +766,18 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         bool skipInactive = s_continuousPlay && s_lockTimestamp == 0;
         s_gameStatus = skipInactive ? GameStatus.Bet : GameStatus.Inactive;
+    }
+
+    function getMaxPayout(uint256 _bet) internal view returns (uint256) {
+        uint256 maxPayout = getBlackJackPayout(_bet);
+
+        if (s_rules.allowDoubleAfterSplit) {
+            maxPayout *= 2 * s_rules.maxResplitHands;
+        } else {
+            maxPayout *= (s_rules.maxResplitHands + 1);
+        }
+
+        return maxPayout;
     }
 
     function isSeatActive(Seat storage _seat) internal view returns (bool) {
