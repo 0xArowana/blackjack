@@ -5,6 +5,17 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Table} from "../../src/Table.sol";
 
 contract ERC20Mock is IERC20 {
+    function name() public view returns (string memory) {
+        return "ERC20 Mock";
+    }
+
+    function symbol() public view returns (string memory) {
+        return "ERC";
+    }
+
+    function decimals() public view returns (uint8) {
+        return 18;
+    }
     function totalSupply() public view returns (uint256) {
         return 0;
     }

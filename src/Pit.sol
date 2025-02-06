@@ -60,7 +60,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         address id;
         string symbol;
         string name;
-        uint256 decimals;
+        uint8 decimals;
         uint256 balance;
         uint256 maxPayout;
     }
@@ -302,7 +302,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         TokenInfo[] memory tokenInfo = new TokenInfo[](s_tokens.length + 1);
 
         TokenState memory ethState = s_managerToTokenToState[_manager][address(0)];
-        tokenInfo[s_tokens.length] = TokenInfo(
+        tokenInfo[0] = TokenInfo(
             address(0), 
             "ETH", 
             "Ether",

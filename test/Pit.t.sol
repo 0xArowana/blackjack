@@ -2,6 +2,8 @@
 pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
+import {console} from "forge-std/console.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {TableHarness} from "./util/TableHarness.sol";
 import {PitHarness} from "./util/PitHarness.sol";
 import {ERC20Mock} from "./util/ERC20Mock.sol";
@@ -10,10 +12,11 @@ import {Pit} from "../src/Pit.sol";
 
 contract PitTest is Test {
     PitHarness pit;
-    address constant token = 0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d;
+    address token = address(new ERC20Mock());
 
     function setUp() public {
-        pit = new PitHarness();
+        address pitImpl = address(new PitHarness());
+        pit = PitHarness(address(new ERC1967Proxy(pitImpl, "")));
         address[] memory tokens = new address[](1);
         tokens[0] = token;
 
@@ -22,7 +25,7 @@ contract PitTest is Test {
             address(0), 
             100, 
             Pit.VrfConfig(
-                address(0),
+                vm.randomAddress(),
                 0x0,
                 0,
                 0
@@ -53,5 +56,12 @@ contract PitTest is Test {
             ), 
             token
         );
+    }
+
+    function test_getManagerTokenInfo() public {
+        address manager = vm.randomAddress();
+        vm.startPrank(manager);
+
+        Pit.TokenInfo[] memory tokens = pit.getManagerTokenInfo(manager);
     }
 }
