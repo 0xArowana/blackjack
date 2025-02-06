@@ -220,8 +220,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint8 _seatCount,
         BetRange memory _betRange,
         Rules memory _rules,
-        address _token,
-        uint256 _startingAmount
+        address _token
     ) public initializer {
         if (_seatCount < 1 || _seatCount > 7) {
             revert Table__InvalidSeatCount();
