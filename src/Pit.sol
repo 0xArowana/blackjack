@@ -6,7 +6,7 @@ import {VRFConsumerBaseV2Upgradeable} from "@chainlink/contracts/src/v0.8/vrf/de
 import {IVRFCoordinatorV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
 import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -52,6 +52,15 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     }
 
     struct TokenState {
+        uint256 balance;
+        uint256 maxPayout;
+    }
+
+    struct TokenInfo {
+        address id;
+        string symbol;
+        string name;
+        uint256 decimals;
         uint256 balance;
         uint256 maxPayout;
     }
@@ -171,7 +180,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             if (_token == address(0)) {
                 ethAmount = absValue;
             } else {
-                IERC20(_token).approve(msg.sender, absValue);
+                ERC20(_token).approve(msg.sender, absValue);
             }
 
             Table(msg.sender).clearDebt{value: ethAmount}();
@@ -197,7 +206,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
                     revert Pit__InvalidEarningsAmountSent();
                 }
             } else {
-                bool success = IERC20(_token).transferFrom(msg.sender, address(this), earnings);
+                bool success = ERC20(_token).transferFrom(msg.sender, address(this), earnings);
 
                 if (!success) {
                     revert Pit__TokenTransferFailed();
@@ -239,7 +248,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     }
 
     function deposit(address _token, uint256 _amount) external approveToken(_token, false) handleDeposit(_token, _amount) {
-        bool success = IERC20(_token).transferFrom(msg.sender, address(this), _amount);
+        bool success = ERC20(_token).transferFrom(msg.sender, address(this), _amount);
 
         if (!success) {
             revert Pit__TokenTransferFailed();
@@ -289,8 +298,33 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         return tableInfo;
     }
 
-    function getManagerTokenState(address _manager, address _token) external view returns (TokenState memory) {
-        return s_managerToTokenToState[_manager][_token];
+    function getManagerTokenInfo(address _manager) external view returns (TokenInfo[] memory) {
+        TokenInfo[] memory tokenInfo = new TokenInfo[](s_tokens.length + 1);
+
+        TokenState memory ethState = s_managerToTokenToState[_manager][address(0)];
+        tokenInfo[s_tokens.length] = TokenInfo(
+            address(0), 
+            "ETH", 
+            "Ether",
+            18,
+            ethState.balance, 
+            ethState.maxPayout
+        );
+
+        for (uint8 i = 0; i < s_tokens.length; i++) {
+            address token = s_tokens[i];
+            TokenState memory tokenState = s_managerToTokenToState[_manager][token];
+            tokenInfo[i + 1] = TokenInfo(
+                token, 
+                ERC20(token).symbol(), 
+                ERC20(token).name(),
+                ERC20(token).decimals(),
+                tokenState.balance, 
+                tokenState.maxPayout
+            );
+        }
+
+        return tokenInfo;
     }
 
     function getPlayerTableInfo(address _player) external view returns (Table.TableInfo memory) {
