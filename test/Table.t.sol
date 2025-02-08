@@ -219,7 +219,7 @@ contract TableTest is Test {
     }
 
     // finalizeBets
-    function test_finalizeBets_SetsMaxPayout() public {
+    function test_finalizeBets_AllocatesFunds() public {
         (Table.Rules memory rules, address token,) = fullSetup();
 
         table.setBetTotal(789);
@@ -227,26 +227,26 @@ contract TableTest is Test {
         rules.maxResplitHands = 3;
         table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.increaseMaxPayout, (4734, token)));
+        vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (4734, token)));
         table.callFinalizeBets();
 
         rules.sixToFive = true;
         table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.increaseMaxPayout, (8522, token)));
+        vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (8522, token)));
         table.callFinalizeBets();
 
         rules.allowDoubleAfterSplit = true;
         table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.increaseMaxPayout, (14203, token)));
+        vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (14203, token)));
         table.callFinalizeBets();
 
         rules.maxResplitHands = 4;
         rules.sixToFive = false;
         table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.increaseMaxPayout, (23671, token)));
+        vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (23671, token)));
         table.callFinalizeBets();
     }
 

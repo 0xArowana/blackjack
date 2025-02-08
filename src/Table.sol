@@ -234,16 +234,17 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             revert Table__InvalidDeckCount();
         }
 
-        __Ownable_init(msg.sender);
-
         Pit pit = Pit(payable(msg.sender));
-        (uint256 balance, uint256 maxPayout) = pit.s_managerToTokenToState(_manager, s_token);
-        uint256 availableBalance = balance - maxPayout;
+        (uint256 balance, uint256 allocated) = pit.s_managerToTokenToState(_manager, _token);
+        uint256 availableBalance = balance - allocated;
         uint256 maxBetTotal = _betRange.max * _seatCount;
+        uint256 newAllocation = getMaxPayout(maxBetTotal);
 
-        if (availableBalance < getMaxPayout(maxBetTotal)) {
+        if (availableBalance < newAllocation) {
             revert Table__InsufficientManagerBalance();
         }
+
+        __Ownable_init(msg.sender);
 
         s_manager = _manager;
         s_seatCount = _seatCount;
@@ -253,6 +254,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         resetDrawableCards();
         refreshRandomWords();
+        pit.allocate(newAllocation, _token);
     }
 
     function getTableInfo() external view returns(TableInfo memory) {
@@ -582,13 +584,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     function finalizeBets() internal {
         Pit pit = Pit(payable(owner()));
-        (uint256 balance, uint256 maxPayout) = pit.s_managerToTokenToState(s_manager, s_token);
+        (uint256 balance, uint256 allocated) = pit.s_managerToTokenToState(s_manager, s_token);
 
         uint256 gameMaxPayout = getMaxPayout(s_betTotal);
         s_gameMaxPayout = gameMaxPayout;
-        pit.increaseMaxPayout(gameMaxPayout, s_token);
+        pit.allocate(gameMaxPayout, s_token);
 
-        if (maxPayout + gameMaxPayout > balance) {
+        if (allocated + gameMaxPayout > balance) {
             s_lockTimestamp = block.timestamp;
             s_gameStatus = GameStatus.Pending;
             emit TableLocked();

@@ -16,7 +16,7 @@ contract PitTest is Test {
 
     function setUp() public {
         address pitImpl = address(new PitHarness());
-        pit = PitHarness(address(new ERC1967Proxy(pitImpl, "")));
+        pit = PitHarness(payable(address(new ERC1967Proxy(pitImpl, ""))));
         address[] memory tokens = new address[](1);
         tokens[0] = token;
 
@@ -63,5 +63,12 @@ contract PitTest is Test {
         vm.startPrank(manager);
 
         Pit.TokenInfo[] memory tokens = pit.getManagerTokenInfo(manager);
+    }
+
+    function test_deposit() public {
+        address manager = vm.randomAddress();
+        vm.startPrank(manager);
+
+        pit.deposit(token, 123);
     }
 }

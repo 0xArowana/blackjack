@@ -53,7 +53,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
 
     struct TokenState {
         uint256 balance;
-        uint256 maxPayout;
+        uint256 allocated;
     }
 
     struct TokenInfo {
@@ -62,7 +62,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         string name;
         uint8 decimals;
         uint256 balance;
-        uint256 maxPayout;
+        uint256 allocated;
     }
 
     event TableCreated(address indexed tableAddress, address indexed managerAddress, Table.BetRange betRange);
@@ -110,7 +110,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         uint256 newBalance = state.balance + _amount;
 
         // Unlock locked tables if sufficient balance
-        if (state.balance < state.maxPayout && newBalance >= state.maxPayout) {
+        if (state.balance < state.allocated && newBalance >= state.allocated) {
             address[] memory tables = s_managerToTables[msg.sender];
 
             for (uint256 i = 0; i < tables.length; i++) {
@@ -124,6 +124,8 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
     constructor() {
         _disableInitializers();
     }
+
+    receive() external payable handleDeposit(address(0), msg.value) {}
 
     function initialize(
         address[] memory _tokens,
@@ -153,24 +155,19 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         s_playerTimeout = _seconds;
     }
 
-    function increaseMaxPayout(uint256 _amount, address _token) external onlyTable {
+    function allocate(uint256 _amount, address _token) external onlyTable {
         address manager = s_tableToManager[msg.sender];
-        s_managerToTokenToState[manager][_token].maxPayout += _amount;
+        s_managerToTokenToState[manager][_token].allocated += _amount;
     }
 
-    function decreaseMaxPayout(uint256 _amount, address _token) external onlyTable {
-        address manager = s_tableToManager[msg.sender];        
-        s_managerToTokenToState[manager][_token].maxPayout -= _amount;
-    }
-
-    function gameEnded(address _token, int256 _earnings, uint256 _gameMaxPayout) external payable onlyTable nonReentrant {
+    function gameEnded(address _token, int256 _earnings, uint256 _gameAllocation) external payable onlyTable nonReentrant {
         if (_token != address(0) && msg.value > 0) {
             revert Pit__CurrencyNotEth();
         }
 
         address manager = s_tableToManager[msg.sender];
         TokenState storage tokenState = s_managerToTokenToState[manager][_token];
-        tokenState.maxPayout -= _gameMaxPayout;
+        tokenState.allocated -= _gameAllocation;
 
         if (_earnings < 0) {
             uint256 absValue = uint256(-_earnings);
@@ -185,9 +182,9 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
 
             Table(msg.sender).clearDebt{value: ethAmount}();
 
-            // Lock tables if token balance less than maxPayout
+            // Lock tables if token balance less than allocated
             // NOTE: This should never happen - test this invariant
-            if (tokenState.balance < tokenState.maxPayout) {
+            if (tokenState.balance < tokenState.allocated) {
                 address[] memory tables = s_managerToTables[msg.sender];
 
                 for (uint256 i = 0; i < tables.length; i++) {
@@ -308,7 +305,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             "Ether",
             18,
             ethState.balance, 
-            ethState.maxPayout
+            ethState.allocated
         );
 
         for (uint8 i = 0; i < s_tokens.length; i++) {
@@ -320,7 +317,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
                 ERC20(token).name(),
                 ERC20(token).decimals(),
                 tokenState.balance, 
-                tokenState.maxPayout
+                tokenState.allocated
             );
         }
 
