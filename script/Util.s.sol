@@ -4,6 +4,7 @@ pragma solidity ^0.8.18;
 import {Script} from "forge-std/Script.sol";
 import {Pit} from "../src/Pit.sol";
 import {Table} from "../src/Table.sol";
+import {console} from "forge-std/console.sol";
 
 contract SetTokens is Script {
     function run() external {
@@ -47,6 +48,16 @@ contract CreateTable is Script {
             ),
             0xeC12Ffe943b53DF4884A55b14168553d43eA28c7
         );
+        vm.stopBroadcast();
+    }
+}
+
+contract PlaceBet is Script {
+    function run() external {
+        vm.startBroadcast();
+        Pit pit = Pit(payable(0xB8204Bd79f34F4397c998281Bbb827c46E6d6B40));
+        Table table = Table(0x2B954C5792252b8420A9206dFB9310034ad2f01d);
+        table.placeBet(1 * 10 ** 18);
         vm.stopBroadcast();
     }
 }

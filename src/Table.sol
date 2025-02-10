@@ -557,6 +557,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             Seat storage seat = s_seats[i];
             if (seat.player == address(0)) continue;
 
+            Hand memory newHand;
+            seat.hands[0] = newHand;
             Hand storage hand = seat.hands[0];
             drawCard(hand);
             drawCard(hand);
