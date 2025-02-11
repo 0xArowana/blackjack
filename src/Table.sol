@@ -686,7 +686,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint8 nextSeatIndex;
 
         for (uint8 i = s_currentSeatIndex + 1; i < s_seatCount; i++) {
-            if (isSeatActive(s_seats[i])) {
+            if (isSeatActive(s_seats[i].info)) {
                 nextSeatIndex = i;
                 break;
             } 
@@ -717,7 +717,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         for (uint8 i = 0; i < s_seatCount; i++) {
             Seat storage seat = s_seats[i];
-            if (!isSeatActive(seat)) continue;
+            if (!isSeatActive(seat.info)) continue;
 
             for (uint j = 0; j < seat.hands.length; j++) {
                 Hand memory hand = seat.hands[j];
@@ -789,8 +789,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         return maxPayout;
     }
 
-    function isSeatActive(Seat storage _seat) internal view returns (bool) {
-        return _seat.info.player != address(0) && !_seat.info.waiting;
+    function isSeatActive(SeatInfo storage _seatInfo) internal view returns (bool) {
+        return _seatInfo.player != address(0) && !_seatInfo.waiting;
     }
 
     function getBlackJackPayout(uint256 _bet) internal view returns (uint256) {
