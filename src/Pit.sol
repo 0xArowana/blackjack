@@ -61,8 +61,11 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         string symbol;
         string name;
         uint8 decimals;
-        uint256 balance;
-        uint256 allocated;
+    }
+
+    struct ManagerToken {
+        TokenInfo info;
+        TokenState state;
     }
 
     event TableCreated(address indexed tableAddress, address indexed managerAddress, Table.BetRange betRange);
@@ -295,33 +298,31 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         return tableInfo;
     }
 
-    function getManagerTokenInfo(address _manager) external view returns (TokenInfo[] memory) {
-        TokenInfo[] memory tokenInfo = new TokenInfo[](s_tokens.length + 1);
+    function getManagerTokens(address _manager) external view returns (ManagerToken[] memory) {
+        ManagerToken[] memory tokens = new ManagerToken[](s_tokens.length + 1);
 
-        TokenState memory ethState = s_managerToTokenToState[_manager][address(0)];
-        tokenInfo[0] = TokenInfo(
+        TokenInfo memory ethInfo = TokenInfo(
             address(0), 
             "ETH", 
             "Ether",
-            18,
-            ethState.balance, 
-            ethState.allocated
+            18
         );
+        TokenState memory ethState = s_managerToTokenToState[_manager][address(0)];
+        tokens[0] = ManagerToken(ethInfo, ethState);
 
         for (uint8 i = 0; i < s_tokens.length; i++) {
             address token = s_tokens[i];
-            TokenState memory tokenState = s_managerToTokenToState[_manager][token];
-            tokenInfo[i + 1] = TokenInfo(
-                token, 
+            TokenInfo memory info = TokenInfo(
+                token,
                 ERC20(token).symbol(), 
                 ERC20(token).name(),
-                ERC20(token).decimals(),
-                tokenState.balance, 
-                tokenState.allocated
+                ERC20(token).decimals()
             );
+            TokenState memory state = s_managerToTokenToState[_manager][token];
+            tokens[i + 1] = ManagerToken(info, state);
         }
 
-        return tokenInfo;
+        return tokens;
     }
 
     function getPlayerTableInfo(address _player) external view returns (Table.TableInfo memory) {

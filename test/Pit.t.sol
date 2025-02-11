@@ -58,11 +58,11 @@ contract PitTest is Test {
         );
     }
 
-    function test_getManagerTokenInfo() public {
+    function test_getManagerTokens() public {
         address manager = vm.randomAddress();
         vm.startPrank(manager);
 
-        Pit.TokenInfo[] memory tokens = pit.getManagerTokenInfo(manager);
+        Pit.ManagerToken[] memory tokens = pit.getManagerTokens(manager);
     }
 
     function test_deposit() public {
