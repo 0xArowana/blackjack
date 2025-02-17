@@ -217,16 +217,16 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         }
     }
 
-    function requestRandomWords() external onlyTable {
+    function requestRandomWords(uint32 _numWords) external onlyTable {
         IVRFCoordinatorV2Plus coordinator = IVRFCoordinatorV2Plus(s_vrfConfig.coordinator);
 
         uint256 requestId = coordinator.requestRandomWords(
             VRFV2PlusClient.RandomWordsRequest({
                 keyHash: s_vrfConfig.keyHash, 
                 subId: s_vrfConfig.subscriptionId, 
-                requestConfirmations: 3, 
+                requestConfirmations: 1, 
                 callbackGasLimit: s_vrfConfig.callbackGasLimit, 
-                numWords: 500,
+                numWords: _numWords,
                 extraArgs: VRFV2PlusClient._argsToBytes(VRFV2PlusClient.ExtraArgsV1({ nativePayment: false }))
             })
         );
@@ -238,6 +238,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         uint256 _requestId,
         uint256[] memory _randomWords
     ) internal override {
+        uint256 startingGas = gasleft();
         address table = s_vrfRequests[_requestId];
 
         if (address(table) == address(0)) {
@@ -245,6 +246,10 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         }
 
         Table(payable(table)).fulfillRandomWords(_randomWords);
+        
+        uint256 gasUsed = startingGas - gasleft();
+        uint256 gasCost = gasUsed * tx.gasprice;
+        // TODO: Charge gas fees to table owner
     }
 
     function deposit(address _token, uint256 _amount) external approveToken(_token, false) handleDeposit(_token, _amount) {

@@ -492,11 +492,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         increaseBet();
 
-        draw(DrawRequest.Hit);
+        draw(DrawRequest.Split, 2);
     }
 
     function requestHit() external onlyCurrentSeat whenUnlocked {
-        draw(DrawRequest.Hit);
+        draw(DrawRequest.Hit, 1);
     }
 
     function stand() external onlyCurrentSeat whenUnlocked {
@@ -577,7 +577,15 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             resetDecks();
         }
         
-        draw(DrawRequest.Start);
+        uint32 numWords = 1;
+
+        for (uint8 i = 0; i < s_seatCount; i++) {
+            if (s_seats[i].info.player != address(0)) {
+                numWords += 2;
+            }
+        }
+
+        draw(DrawRequest.Start, numWords);
     }
 
     function shouldResetDecks() internal view returns(bool) {
@@ -618,10 +626,10 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
     
-    function draw(DrawRequest _drawRequest) internal {
+    function draw(DrawRequest _drawRequest, uint32 _numWords) internal {
         s_drawRequest = _drawRequest;
         s_lockTimestamp = block.timestamp;
-        Pit(payable(owner())).requestRandomWords();
+        Pit(payable(owner())).requestRandomWords(_numWords);
     }
 
     function addCardToHand(Hand storage _hand, uint256[] calldata _randomWords) internal {
@@ -659,6 +667,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             seat.hands.push(newHand);
     
             Hand storage hand = seat.hands[0];
+            addCardToHand(hand, _randomWords);
             addCardToHand(hand, _randomWords);
         }
 
@@ -746,7 +755,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (nextSeatIndex == 0) {
             s_gameStatus = GameStatus.DealerTurn;
-            draw(DrawRequest.Dealer);
+            draw(DrawRequest.Dealer, 12);
         }
     }
 
