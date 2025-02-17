@@ -55,9 +55,9 @@ contract CreateTable is Script {
 contract PlaceBet is Script {
     function run() external {
         vm.startBroadcast();
-        Pit pit = Pit(payable(0xB8204Bd79f34F4397c998281Bbb827c46E6d6B40));
-        Table table = Table(0x2B954C5792252b8420A9206dFB9310034ad2f01d);
-        table.placeBet(1 * 10 ** 18);
+        // Pit pit = Pit(payable(0x1816fBdAb809D6B67Ce7CF75586E51A4795d5534));
+        Table table = Table(0x6C823899500e7025FCB85269955aB433A69995CC);
+        table.placeBet(0.55 * 10 ** 18);
         vm.stopBroadcast();
     }
 }

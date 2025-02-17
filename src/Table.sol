@@ -121,6 +121,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         DealerTurn
     }
 
+    enum DrawRequest {
+        None,
+        Start,
+        Split,
+        Hit,
+        Dealer
+    }
+
     address public s_token;
     address public s_manager;
     mapping (uint8 => Seat) internal s_seats;
@@ -135,18 +143,23 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     uint256 internal s_debt;
     uint256 internal s_betTotal;
     uint256 internal s_gameMaxPayout;
-    uint256[] internal s_randomWords;
     uint8[] internal s_drawableCards;
+    DrawRequest internal s_drawRequest;
     mapping(uint8 => uint8) internal s_cardToDrawCount;
     bool internal s_continuousPlay;
 
+    event BetPlaced(address indexed player, uint256 indexed amount);
     event BetsStarted();
+    event CardDrawn(uint8 indexed card);
+    event RandomWordsFulfilled(DrawRequest indexed drawRequest);
     event GameStarted();
     event Hit(uint8 indexed card);
     event PlayerSeated(address indexed player, uint8 indexed seat);
     event PlayerLeft(address indexed player, uint8 indexed seat);
-    event BetPlaced(address indexed player, uint256 indexed amount);
     event TableLocked();
+
+    event WillCreateHand();
+    event HandSet();
 
     modifier onlyManager {
         if (msg.sender != address(s_manager)) {
@@ -250,8 +263,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_rules = _rules; // TODO: validate rules
         s_token = _token;
 
-        resetDrawableCards();
-        refreshRandomWords();
         pit.allocate(newAllocation, _token);
     }
 
@@ -298,10 +309,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     function setToken(address _token) external onlyManager whenInactive whenUnlocked whenEmpty {
         s_token = _token;
-    }
-
-    function setRandomWords(uint256[] calldata _randomWords) external onlyOwner {
-        s_randomWords = _randomWords;
     }
 
     function startBets() external onlyManager whenInactive whenUnlocked {
@@ -457,53 +464,35 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         increaseBet();
     }
 
-    function hit() external onlyCurrentSeat whenUnlocked {
-        (Hand storage hand, uint256 index) = getActiveHand();
-        drawCard(hand);
-
-        if (hand.minValue > 21) {
-            finishHand(index, HandStatus.Bust);
-        } else if (hand.doubled) {
-            finishHand(index, HandStatus.Stand);
-        }
-    }
-
-    function stand() external onlyCurrentSeat whenUnlocked {
-        (, uint256 index) = getActiveHand();
-        finishHand(index, HandStatus.Stand);
-    }
-
-    function split() payable external onlyCurrentSeat whenUnlocked checkCurrency nonReentrant {
+    function requestSplit() payable external onlyCurrentSeat whenUnlocked checkCurrency nonReentrant {
         Seat storage seat = s_seats[s_currentSeatIndex];
 
         if (seat.hands.length == s_rules.maxResplitHands) {
             revert Table__MaxResplitHandsReached();
         }
-        
+
         (Hand storage hand,) = getActiveHand();
 
         if (hand.cards.length > 2) {
             revert Table__CannotSplitAfterHit();
         }
 
-        uint8 card1 = hand.cards[0];
-        uint8 card2 = hand.cards[1];
-        uint8 cardMinValue = getCardMinValue(card1);
-
-        if (cardMinValue != getCardMinValue(card2)) {
+        if (getCardMinValue(hand.cards[0]) != getCardMinValue(hand.cards[1])) {
             revert Table__CannotSplitOnDifferentCards();
         }
 
         increaseBet();
 
-        drawCard(hand);
-        hand.minValue -= cardMinValue;
+        draw(DrawRequest.Hit);
+    }
 
-        Hand memory newHand;
-        newHand.minValue = cardMinValue;
-        Hand[] storage hands = seat.hands;
-        hands.push(newHand);
-        hands[hands.length - 1].cards.push(card2);
+    function requestHit() external onlyCurrentSeat whenUnlocked {
+        draw(DrawRequest.Hit);
+    }
+
+    function stand() external onlyCurrentSeat whenUnlocked {
+        (, uint256 index) = getActiveHand();
+        finishHand(index, HandStatus.Stand);
     }
 
     function clearDebt() external payable onlyOwner checkCurrency {
@@ -544,6 +533,23 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
+    function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner {
+        emit RandomWordsFulfilled(s_drawRequest);
+        s_lockTimestamp = 0;
+
+        if (s_drawRequest == DrawRequest.Start) {
+            initialDeal(_randomWords);
+        } else if (s_drawRequest == DrawRequest.Split) {  
+            split(_randomWords);
+        } else if (s_drawRequest == DrawRequest.Hit) {  
+            hit(_randomWords);
+        } else if (s_drawRequest == DrawRequest.Dealer) {
+            dealerPlay(_randomWords);
+        }
+
+        s_drawRequest = DrawRequest.None;
+    }
+
     function lock() external onlyOwner {
         s_lockTimestamp = block.timestamp;
         emit TableLocked();
@@ -558,27 +564,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function startGame() internal {
-        for (uint8 i = 0; i < s_seatCount; i++) {
-            Seat storage seat = s_seats[i];
-            if (seat.info.player == address(0)) continue;
-
-            Hand memory newHand;
-            seat.hands[0] = newHand;
-            
-            Hand storage hand = seat.hands[0];
-            drawCard(hand);
-            drawCard(hand);
-        }
-
-        drawCard(s_dealerHand);
-        uint256 value = s_dealerHand.minValue;
-
-        if (s_rules.allowInsurance && (value == 10 || value == 1)) {
-            s_gameStatus = GameStatus.Insurance;
-        } else {
-            s_gameStatus = GameStatus.PlayerTurn;
-            emit GameStarted();
-        }
+        resetDrawableCards();
+        draw(DrawRequest.Start);
     }
 
     function resetDrawableCards() internal {
@@ -607,19 +594,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
     
-    function drawCard(Hand storage _hand) internal {
-        if (s_randomWords.length == 0) {
-            revert Table__NoCards();
-        }
+    function draw(DrawRequest memory _drawRequest) internal {
+        s_drawRequest = _drawRequest;
+        s_lockTimestamp = block.timestamp;
+        Pit(payable(owner())).requestRandomWords();
+    }
 
-        uint256 randomWord = s_randomWords[s_randomWords.length - 1];
-        s_randomWords.pop();
-
-        // Get new random words from VRF if running out
-        if (s_randomWords.length < 50) {
-            refreshRandomWords();
-        }
-
+    function addCardToHand(Hand storage _hand, uint256[] calldata _randomWords) internal {
+        uint256 randomWord = _randomWords[_randomWords.length - 1];
         uint8 cardIndex = uint8(randomWord % s_drawableCards.length);
         uint8 card = s_drawableCards[cardIndex];
 
@@ -628,15 +610,11 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         // Remove card from drawable cards if drawn max number of times
         // Reset drawable cards if all drawn
         if (s_cardToDrawCount[card] == s_rules.deckCount) {
-            if (s_drawableCards.length == 1) {
-                resetDrawableCards();
-            } else {
-                for (uint8 i = cardIndex; i < s_drawableCards.length; i++) {
-                    s_drawableCards[i] = s_drawableCards[i + 1];
-                }
-
-                s_drawableCards.pop();
+            for (uint8 i = cardIndex; i < s_drawableCards.length; i++) {
+                s_drawableCards[i] = s_drawableCards[i + 1];
             }
+
+            s_drawableCards.pop();
         }
 
         _hand.cards.push(card);
@@ -647,8 +625,54 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function refreshRandomWords() internal {
-        Pit(payable(owner())).requestRandomWords();
+    function initialDeal(uint256[] calldata _randomWords) internal {
+        for (uint8 i = 0; i < s_seatCount; i++) {
+            Seat storage seat = s_seats[i];
+            if (seat.info.player == address(0)) continue;
+
+            Hand memory newHand;
+            seat.hands.push(newHand);
+    
+            Hand storage hand = seat.hands[0];
+            addCardToHand(hand, _randomWords);
+        }
+
+        addCardToHand(s_dealerHand, _randomWords);
+        uint256 value = s_dealerHand.minValue;
+
+        if (s_rules.allowInsurance && (value == 10 || value == 1)) {
+            s_gameStatus = GameStatus.Insurance;
+        } else {
+            s_gameStatus = GameStatus.PlayerTurn;
+        }
+
+        emit GameStarted();
+    }
+
+    function split(uint256[] calldata _randomWords) internal {
+        (Hand storage hand1,) = getActiveHand();
+        uint8 splitCard = hand1.cards[1];
+        uint8 cardValue = getCardMinValue(splitCard);
+
+        addCardToHand(hand1, _randomWords);
+        hand1.minValue -= cardValue;
+
+        Hand memory newHand;
+        Hand[] storage hands = s_seats[s_currentSeatIndex].hands;
+        hands.push(newHand);
+
+        Hand storage hand2 = hands[hands.length - 1];
+        hand2.cards.push(splitCard);
+        hand2.minValue = cardValue;
+        hand2.aceCount = cardValue == 1 ? 1 : 0;
+        addCardToHand(hand2, _randomWords);
+    }
+
+    function hit(uint256[] calldata _randomWords) internal {
+        (Hand storage hand, uint256 index) = getActiveHand();
+        addCardToHand(hand, _randomWords);
+        HandStatus memory status = hand.minValue > 21 ? HandStatus.Bust : HandStatus.Stand; 
+        finishHand(index, status);
     }
 
     function increaseBet() internal {
@@ -676,9 +700,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (_index == hands.length - 1) {
             nextTurn();
-        } else {
-            Hand storage nextHand = hands[_index + 1];
-            drawCard(nextHand);
         }
     }
 
@@ -696,16 +717,16 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (nextSeatIndex == 0) {
             s_gameStatus = GameStatus.DealerTurn;
-            dealerPlay();
+            draw(DrawRequest.Dealer);
         }
     }
 
-    function dealerPlay() internal {
-        drawCard(s_dealerHand);
+    function dealerPlay(uint256[] calldata _randomWords) internal {
+        addCardToHand(s_dealerHand, _randomWords);
         uint256 dealerHandValue = getHandValue(s_dealerHand);
 
         if (dealerHandValue < 17 || (dealerHandValue == 17 && s_dealerHand.aceCount > 0 && s_rules.dealerHitOnSoft17)) {
-            dealerPlay();
+            dealerPlay(_randomWords);
             return;
         }
 
