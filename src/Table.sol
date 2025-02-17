@@ -68,16 +68,24 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint256 lockTimestamp;
     }
 
-    /// @notice Determines the hand value forward which the bet can be doubled
+    /// @notice Determines the hand values for which the bet can be doubled
     enum DoubleRule {
         Any,
         NineToEleven,
         TenToEleven
     }
 
+    /// @notice Determines the hand value forward which the bet can be doubled
+    enum DeckReset {
+        EveryHand,
+        FourDecksLeft,
+        TwoDecksLeft
+    }
+
     /// @notice Standard blackjack parameters by which the game logic operates
     struct Rules {
         uint8 deckCount;
+        DeckReset deckReset;
         bool dealerHitOnSoft17;
         bool allowDoubleAfterSplit;
         DoubleRule doubleRule;
@@ -146,6 +154,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     uint8[] internal s_drawableCards;
     DrawRequest internal s_drawRequest;
     mapping(uint8 => uint8) internal s_cardToDrawCount;
+    uint16 internal s_totalCardsDrawn;
     bool internal s_continuousPlay;
 
     event BetPlaced(address indexed player, uint256 indexed amount);
@@ -564,11 +573,26 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function startGame() internal {
-        resetDrawableCards();
+        if (shouldResetDecks()) {
+            resetDecks();
+        }
+        
         draw(DrawRequest.Start);
     }
 
-    function resetDrawableCards() internal {
+    function shouldResetDecks() internal view returns(bool) {
+        if (s_rules.deckReset == DeckReset.EveryHand) {
+            return true;
+        }
+
+        uint16 totalCards = s_rules.deckCount * 52;
+        uint16 cardsLeft = s_rules.deckReset == DeckReset.TwoDecksLeft ? 104 : 208;
+        uint16 maxDrawCount = totalCards - cardsLeft;
+        return s_totalCardsDrawn >= maxDrawCount;
+    }
+
+    function resetDecks() internal {
+        s_totalCardsDrawn = 0;
         delete s_drawableCards;
 
         for (uint8 i = 1; i < 53; i++) {
@@ -605,7 +629,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         uint8 cardIndex = uint8(randomWord % s_drawableCards.length);
         uint8 card = s_drawableCards[cardIndex];
 
-        s_cardToDrawCount[card]++; 
+        s_cardToDrawCount[card]++;
+        s_totalCardsDrawn++;
 
         // Remove card from drawable cards if drawn max number of times
         // Reset drawable cards if all drawn
@@ -677,7 +702,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         } else if (hand.minValue == 21 || hand.doubled) {
             finishHand(index, HandStatus.Stand);
         }
-        
     }
 
     function increaseBet() internal {

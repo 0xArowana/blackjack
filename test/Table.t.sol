@@ -35,6 +35,7 @@ contract TableTest is Test {
 
         Table.Rules memory rules = Table.Rules(
             2, // deckCount
+            Table.DeckReset.EveryHand, // deckReset
             false, // dealerHitOnSoft17
             false, // allowDoubleAfterSplit
             Table.DoubleRule.Any, // doubleRule
@@ -73,6 +74,7 @@ contract TableTest is Test {
         Table.BetRange memory betRange = Table.BetRange(vm.randomUint(), vm.randomUint());
         Table.Rules memory rules = Table.Rules(
             uint8(vm.randomUint()),
+            Table.DeckReset(vm.randomUint() % 3),
             vm.randomBool(),
             vm.randomBool(),
             Table.DoubleRule(vm.randomUint() % 3),

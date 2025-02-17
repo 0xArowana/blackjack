@@ -44,6 +44,7 @@ contract PitTest is Test {
             Table.BetRange(0,100), 
             Table.Rules(
                 2, // deckCount
+                Table.DeckReset.EveryHand,
                 false, // dealerHitOnSoft17
                 false, // allowDoubleAfterSplit
                 Table.DoubleRule.Any, // doubleRule
