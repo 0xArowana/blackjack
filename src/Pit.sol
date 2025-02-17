@@ -244,7 +244,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
             revert Pit__VrfRequestNotFound();
         }
 
-        Table(payable(table)).setRandomWords(_randomWords, requestId);
+        Table(payable(table)).fulfillRandomWords(_randomWords);
     }
 
     function deposit(address _token, uint256 _amount) external approveToken(_token, false) handleDeposit(_token, _amount) {

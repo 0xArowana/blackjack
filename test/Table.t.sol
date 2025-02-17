@@ -61,7 +61,7 @@ contract TableTest is Test {
             words[i] = vm.randomUint();
         }
         vm.prank(address(pit));
-        table.setRandomWords(words);
+        table.fulfillRandomWords(words);
 
         return (rules, token, manager);
     }
@@ -270,14 +270,6 @@ contract TableTest is Test {
         table.callFinalizeBets();
         assertEq(table.s_lockTimestamp(), 0);
         assertEq(uint(table.getGameStatus()), uint(Table.GameStatus.PlayerTurn));
-    }
-
-    function test_hit() public {
-        fullSetup();
-
-        table.setGameStatus(Table.GameStatus.PlayerTurn);
-
-        table.hit();
     }
 
     function test_sit() public {

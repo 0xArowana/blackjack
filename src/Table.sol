@@ -594,7 +594,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
     
-    function draw(DrawRequest memory _drawRequest) internal {
+    function draw(DrawRequest _drawRequest) internal {
         s_drawRequest = _drawRequest;
         s_lockTimestamp = block.timestamp;
         Pit(payable(owner())).requestRandomWords();
@@ -671,8 +671,13 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     function hit(uint256[] calldata _randomWords) internal {
         (Hand storage hand, uint256 index) = getActiveHand();
         addCardToHand(hand, _randomWords);
-        HandStatus memory status = hand.minValue > 21 ? HandStatus.Bust : HandStatus.Stand; 
-        finishHand(index, status);
+
+        if (hand.minValue > 21) {
+            finishHand(index, HandStatus.Bust);
+        } else if (hand.minValue == 21 || hand.doubled) {
+            finishHand(index, HandStatus.Stand);
+        }
+        
     }
 
     function increaseBet() internal {
