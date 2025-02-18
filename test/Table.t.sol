@@ -32,10 +32,12 @@ contract TableTest is Test {
     function fullSetup() internal returns (Table.Rules memory, address, address) {
         address manager = vm.randomAddress();
         pit.setTableToManager(address(table), manager);
+        address token = address(new ERC20Mock());
+        pit.setManagerToTokenToState(manager, token, Pit.TokenState(100e18, 0));
 
         Table.Rules memory rules = Table.Rules(
-            2, // deckCount
-            Table.DeckReset.EveryHand, // deckReset
+            8, // deckCount
+            Table.DeckReset.FourDecksLeft, // deckReset
             false, // dealerHitOnSoft17
             false, // allowDoubleAfterSplit
             Table.DoubleRule.Any, // doubleRule
@@ -52,17 +54,15 @@ contract TableTest is Test {
             7, 
             Table.BetRange(1, 100), 
             rules, 
-            address(0)
+            token
         );
-        address token = address(new ERC20Mock());
-        table.setTestToken(token);
         
-        uint256[] memory words = new uint256[](10);
-        for (uint256 i = 0; i < 10; i++) {
-            words[i] = vm.randomUint();
-        }
-        vm.prank(address(pit));
-        table.fulfillRandomWords(words);
+        // uint256[] memory words = new uint256[](10);
+        // for (uint256 i = 0; i < 10; i++) {
+        //     words[i] = vm.randomUint();
+        // }
+        // vm.prank(address(pit));
+        // table.fulfillRandomWords(words);
 
         return (rules, token, manager);
     }
@@ -337,6 +337,7 @@ contract TableTest is Test {
 
         vm.startPrank(vm.randomAddress());
         table.sit(2);
+        table.sit(3);
         table.placeBet(90);
     }
 }

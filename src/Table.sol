@@ -19,6 +19,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__InvalidBetAmount();
     error Table__InvalidDebtClearanceAmount();
     error Table__InvalidDeckCount();
+    error Table__InvalidDeckReset();
     error Table__InvalidMaxResplitHands();
     error Table__InvalidSeat();
     error Table__InvalidSeatCount();
@@ -252,6 +253,10 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (_rules.deckCount > 8 || _rules.deckCount == 3 || _rules.deckCount == 7) {
             revert Table__InvalidDeckCount();
+        }
+
+        if (_rules.deckCount < 6 && _rules.deckReset != DeckReset.EveryHand) {
+            revert Table__InvalidDeckReset();
         }
 
         Pit pit = Pit(payable(msg.sender));
@@ -593,7 +598,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             return true;
         }
 
-        uint16 totalCards = s_rules.deckCount * 52;
+        uint16 totalCards = uint16(s_rules.deckCount) * 52;
         uint16 cardsLeft = s_rules.deckReset == DeckReset.TwoDecksLeft ? 104 : 208;
         uint16 maxDrawCount = totalCards - cardsLeft;
         return s_totalCardsDrawn >= maxDrawCount;
