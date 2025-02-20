@@ -340,4 +340,16 @@ contract TableTest is Test {
         table.sit(3);
         table.placeBet(90);
     }
+
+    function test_tableFulfillRandomWords() public {
+        fullSetup();
+        table.setDrawRequest(Table.DrawRequest.Start);
+
+        uint256[] memory words = new uint256[](15);
+        for (uint256 i = 0; i < 15; i++) {
+            words[i] = vm.randomUint();
+        }
+        vm.prank(address(pit));
+        table.fulfillRandomWords(words);
+    }
 }

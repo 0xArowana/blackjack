@@ -52,6 +52,10 @@ contract TableHarness is Table {
         s_currentSeatIndex = _index;
     }
 
+    function setDrawRequest(DrawRequest _drawRequest) external {
+        s_drawRequest = _drawRequest;
+    }
+
     function callFinalizeBets() external {
         finalizeBets();
     }

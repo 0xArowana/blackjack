@@ -54,7 +54,7 @@ contract PitTest is Test {
                 true, // allowLateSurrender
                 true, // allowInsurance
                 false // sixToFive
-            ), 
+            ),
             token
         );
     }
@@ -71,5 +71,40 @@ contract PitTest is Test {
         vm.startPrank(manager);
 
         pit.deposit(token, 123);
+    }
+
+    function test_fulfillRandomWords() public {
+        address manager = vm.randomAddress();
+        vm.startPrank(manager);
+
+        pit.createTable(
+            7, 
+            Table.BetRange(0,100), 
+            Table.Rules(
+                2, // deckCount
+                Table.DeckReset.EveryHand,
+                false, // dealerHitOnSoft17
+                false, // allowDoubleAfterSplit
+                Table.DoubleRule.Any, // doubleRule
+                3, // maxResplitHands
+                true, // allowResplitAces
+                true, // allowHitSplitAces
+                true, // allowLateSurrender
+                true, // allowInsurance
+                false // sixToFive
+            ), 
+            token
+        );
+
+        uint256 requestId = 123456;
+        address table = pit.s_managerToTables(manager, 0);
+        pit.setVrfRequest(requestId, table);
+
+        uint256[] memory randomWords = new uint256[](15);
+        for (uint256 i = 0; i < 15; i++) {
+            randomWords[i] = vm.randomUint();
+        }
+        
+        pit.callFulfillRandomWords(requestId, randomWords);
     }
 }

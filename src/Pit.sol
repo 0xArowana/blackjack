@@ -222,7 +222,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
 
         uint256 requestId = coordinator.requestRandomWords(
             VRFV2PlusClient.RandomWordsRequest({
-                keyHash: s_vrfConfig.keyHash, 
+                keyHash: s_vrfConfig.keyHash,
                 subId: s_vrfConfig.subscriptionId, 
                 requestConfirmations: 1, 
                 callbackGasLimit: s_vrfConfig.callbackGasLimit, 

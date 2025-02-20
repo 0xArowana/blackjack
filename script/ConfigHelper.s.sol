@@ -15,14 +15,14 @@ contract ConfigHelper is Script {
                 coordinator: 0x5CE8D5A2BC84beb22a398CCA51996F7930313D61,
                 keyHash: 0x1770bdc7eec7771f7ba4ffd640f34260d7f095b79c92d34a5b2551d6f6cfd2be,
                 subscriptionId: 115678517865845314128708521410416585367502008983375723740453418397630079470798,
-                callbackGasLimit: 500000
+                callbackGasLimit: 2500000
             });
         } else if (block.chainid == 11155111) {
             vrfConfig = Pit.VrfConfig({
                 coordinator: 0x8103B0A8A00be2DDC778e6e7eaa21791Cd364625,
                 keyHash: 0x474e34a077df58807dbe9c96d3c009b23b3c6d0cce433e59bbf5b34f823bc56c,
                 subscriptionId: 36914015898050635157534080309617955626201460366891505809834490672915020740786,
-                callbackGasLimit: 500000
+                callbackGasLimit: 2500000
             });
         }
 
