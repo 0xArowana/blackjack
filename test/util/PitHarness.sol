@@ -16,7 +16,7 @@ contract PitHarness is Pit {
         s_vrfRequests[_requestId] = _table;
     }
 
-    function callFulfillRandomWords(uint256 _requestId, uint256[] memory _randomWords) external {
+    function callFulfillRandomWords(uint256 _requestId, uint256[] calldata _randomWords) external {
         fulfillRandomWords(_requestId, _randomWords);
     }
 }

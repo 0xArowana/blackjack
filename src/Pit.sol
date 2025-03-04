@@ -2,18 +2,17 @@
 pragma solidity ^0.8.18;
 
 import {IPool} from "@aave/contracts/interfaces/IPool.sol";
-import {VRFConsumerBaseV2Upgradeable} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2Upgradeable.sol";
+import {VRFConsumerBaseV2PlusUpgradeable} from "@chainlink/contracts/src/v0.8/vrf/dev/VRFConsumerBaseV2PlusUpgradeable.sol";
 import {IVRFCoordinatorV2Plus} from "@chainlink/contracts/src/v0.8/vrf/dev/interfaces/IVRFCoordinatorV2Plus.sol";
 import {VRFV2PlusClient} from "@chainlink/contracts/src/v0.8/vrf/dev/libraries/VRFV2PlusClient.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Table} from "./Table.sol";
 
-contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerBaseV2Upgradeable, ReentrancyGuard {
+contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable, ReentrancyGuard {
     error Pit__CurrencyNotEth();
     error Pit__InsufficientBalance();
     error Pit__InsufficientManagerBalance();
@@ -138,8 +137,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
         address _tableImplementation
     ) public initializer {
         __UUPSUpgradeable_init();
-        __Ownable_init(msg.sender);
-        __VRFConsumerBaseV2_init(_vrfConfig.coordinator);
+        __VRFConsumerBaseV2Plus_init(_vrfConfig.coordinator);
         
         s_tokens = _tokens;
         s_pool = _pool;
@@ -236,7 +234,7 @@ contract Pit is Initializable, UUPSUpgradeable, OwnableUpgradeable, VRFConsumerB
 
     function fulfillRandomWords(
         uint256 _requestId,
-        uint256[] memory _randomWords
+        uint256[] calldata _randomWords
     ) internal override {
         uint256 startingGas = gasleft();
         address table = s_vrfRequests[_requestId];
