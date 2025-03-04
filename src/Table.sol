@@ -309,6 +309,16 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         return tableInfo;
     }
 
+    function getSeats() external view returns(Seat[] memory) {
+        Seat[] memory seats = new Seat[](s_seatCount);
+
+        for (uint8 i = 0; i < s_seatCount; i++) {
+            seats[i] = s_seats[i];
+        }
+
+        return seats;
+    }
+
     function setSeatCount(uint8 _seatCount) external onlyManager whenInactive whenEmpty whenUnlocked {
         if (_seatCount < 1 || _seatCount > 7) {
             revert Table__InvalidSeatCount();
