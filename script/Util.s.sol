@@ -3,6 +3,7 @@ pragma solidity ^0.8.18;
 
 import {Script} from "forge-std/Script.sol";
 import {Pit} from "../src/Pit.sol";
+import {ITable} from "../src/interfaces/ITable.sol";
 import {Table} from "../src/Table.sol";
 import {console} from "forge-std/console.sol";
 
@@ -33,13 +34,13 @@ contract CreateTable is Script {
         Pit pit = Pit(payable(0x380c1Cb55B59e86884719ee2f6bFbC15D7Ede669));
         pit.createTable(
             3, 
-            Table.BetRange(1,100), 
-            Table.Rules(
+            ITable.BetRange(1,100), 
+            ITable.Rules(
                 2, // deckCount
-                Table.DeckReset.EveryHand,
+                ITable.DeckReset.EveryHand,
                 false, // dealerHitOnSoft17
                 false, // allowDoubleAfterSplit
-                Table.DoubleRule.Any, // doubleRule
+                ITable.DoubleRule.Any, // doubleRule
                 3, // maxResplitHands
                 true, // allowResplitAces
                 true, // allowHitSplitAces

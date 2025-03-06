@@ -6,9 +6,10 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Pit} from "./Pit.sol";
+import {ITable} from "./interfaces/ITable.sol";
+import {IPit} from "./interfaces/IPit.sol";
 
-contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
+contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__CannotDoubleAfterHit();
     error Table__CannotSplitAfterHit();
     error Table__CannotSplitOnDifferentCards();
@@ -51,59 +52,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         Hand[] hands;
     }
 
-    struct SeatInfo {
-        address player;
-        uint256 bet;
-        bool waiting;
-    }
-
-    struct TableInfo {
-        address id;
-        address manager;
-        Pit.TokenInfo tokenInfo;
-        GameStatus gameStatus;
-        SeatInfo[] seats;
-        uint8 seatCount;
-        BetRange betRange;
-        Rules rules;
-        uint256 lockTimestamp;
-    }
-
-    /// @notice Determines the hand values for which the bet can be doubled
-    enum DoubleRule {
-        Any,
-        NineToEleven,
-        TenToEleven
-    }
-
-    /// @notice Determines the hand value forward which the bet can be doubled
-    enum DeckReset {
-        EveryHand,
-        FourDecksLeft,
-        TwoDecksLeft
-    }
-
-    /// @notice Standard blackjack parameters by which the game logic operates
-    struct Rules {
-        uint8 deckCount;
-        DeckReset deckReset;
-        bool dealerHitOnSoft17;
-        bool allowDoubleAfterSplit;
-        DoubleRule doubleRule;
-        uint8 maxResplitHands;
-        bool allowResplitAces;
-        bool allowHitSplitAces;
-        bool allowLateSurrender;
-        bool allowInsurance;
-        bool sixToFive;
-    }
-
-    // @notice The range in which bets may be placed
-    struct BetRange {
-        uint256 min;
-        uint256 max;
-    }
-
     // @notice A list of cards and other details for a hand
     struct Hand {
         uint8[] cards;
@@ -120,16 +68,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         Bust
     }
 
-    // @notice The status of the current game
-    enum GameStatus {
-        Inactive,
-        Bet,
-        Pending,
-        Insurance,
-        PlayerTurn,
-        DealerTurn
-    }
-
     enum DrawRequest {
         None,
         Start,
@@ -138,8 +76,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         Dealer
     }
 
-    address public s_token;
-    address public s_manager;
+    address internal s_token;
+    address internal s_manager;
     mapping (uint8 => Seat) internal s_seats;
     mapping(address => uint256) internal s_playerToBalance;
     uint256 public s_lockTimestamp;
@@ -259,9 +197,9 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             revert Table__InvalidDeckReset();
         }
 
-        Pit pit = Pit(payable(msg.sender));
-        (uint256 balance, uint256 allocated) = pit.s_managerToTokenToState(_manager, _token);
-        uint256 availableBalance = balance - allocated;
+        IPit pit = IPit(msg.sender);
+        IPit.TokenState memory tokenState = pit.getManagerTokenState(_manager, _token);
+        uint256 availableBalance = tokenState.balance - tokenState.allocated;
         uint256 maxBetTotal = _betRange.max * _seatCount;
         uint256 newAllocation = getMaxPayout(maxBetTotal);
 
@@ -280,6 +218,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         pit.allocate(newAllocation, _token);
     }
 
+    function token() external view returns (address) {
+        return s_token;
+    }
+
+    function manager() external view returns (address) {
+        return s_manager;
+    }
+
     function getTableInfo() external view returns(TableInfo memory) {
         SeatInfo[] memory seats = new SeatInfo[](s_seatCount);
 
@@ -287,7 +233,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             seats[i] = s_seats[i].info;
         }
 
-        Pit.TokenInfo memory tokenInfo = Pit.TokenInfo(
+        IPit.TokenInfo memory tokenInfo = IPit.TokenInfo(
             s_token,
             ERC20(s_token).symbol(), 
             ERC20(s_token).name(),
@@ -351,8 +297,8 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             revert Table__SeatOccupied();
         }
 
-        Pit pit = Pit(payable(owner()));
-        address table = pit.s_playerToTable(msg.sender);
+        IPit pit = IPit(owner());
+        address table = pit.getPlayerTable(msg.sender);
 
         if (table != address(0) && table != address(this)) {
             revert Table__PlayerAlreadySeated();
@@ -384,7 +330,6 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
         seatInfo.waiting = false;
         delete s_seats[_index].hands;
         
-
         bool playerAtTable = false;
         bool missingBet = false;
 
@@ -402,7 +347,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (!playerAtTable) {
             // TODO: Should remaining balance value be stored on pit to notify user?
-            Pit(payable(owner())).playerLeft(msg.sender);
+            IPit(owner()).playerLeft(msg.sender);
         }
 
         emit PlayerLeft(msg.sender, _index);
@@ -625,14 +570,14 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function finalizeBets() internal {
-        Pit pit = Pit(payable(owner()));
-        (uint256 balance, uint256 allocated) = pit.s_managerToTokenToState(s_manager, s_token);
+        IPit pit = IPit(owner());
+        IPit.TokenState memory tokenState = pit.getManagerTokenState(s_manager, s_token);
 
         uint256 gameMaxPayout = getMaxPayout(s_betTotal);
         s_gameMaxPayout = gameMaxPayout;
         pit.allocate(gameMaxPayout, s_token);
 
-        if (allocated + gameMaxPayout > balance) {
+        if (tokenState.allocated + gameMaxPayout > tokenState.balance) {
             s_lockTimestamp = block.timestamp;
             s_gameStatus = GameStatus.Pending;
             emit TableLocked();
@@ -644,7 +589,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
     function draw(DrawRequest _drawRequest, uint32 _numWords) internal {
         s_drawRequest = _drawRequest;
         s_lockTimestamp = block.timestamp;
-        Pit(payable(owner())).requestRandomWords(_numWords);
+        IPit(owner()).requestRandomWords(_numWords);
     }
 
     function addCardToHand(Hand storage _hand, uint256[] calldata _randomWords) internal {
@@ -834,7 +779,7 @@ contract Table is Initializable, OwnableUpgradeable, ReentrancyGuard {
             }
         } 
         
-        Pit(payable(owner())).gameEnded{value: ethEarnings}(s_token, earnings, s_gameMaxPayout);
+        IPit(owner()).gameEnded{value: ethEarnings}(s_token, earnings, s_gameMaxPayout);
         s_gameMaxPayout = 0;
 
         // Reset bets and hands, and seat waiting players

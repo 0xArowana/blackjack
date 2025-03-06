@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {TableHarness} from "./util/TableHarness.sol";
 import {PitHarness} from "./util/PitHarness.sol";
 import {ERC20Mock} from "./util/ERC20Mock.sol";
+import {ITable} from "../src/interfaces/ITable.sol";
 import {Table} from "../src/Table.sol";
 import {Pit} from "../src/Pit.sol";
 
@@ -41,13 +42,13 @@ contract PitTest is Test {
 
         pit.createTable(
             7, 
-            Table.BetRange(0,100), 
-            Table.Rules(
+            ITable.BetRange(0,100), 
+            ITable.Rules(
                 2, // deckCount
-                Table.DeckReset.EveryHand,
+                ITable.DeckReset.EveryHand,
                 false, // dealerHitOnSoft17
                 false, // allowDoubleAfterSplit
-                Table.DoubleRule.Any, // doubleRule
+                ITable.DoubleRule.Any, // doubleRule
                 3, // maxResplitHands
                 true, // allowResplitAces
                 true, // allowHitSplitAces
@@ -79,13 +80,13 @@ contract PitTest is Test {
 
         pit.createTable(
             7, 
-            Table.BetRange(0,100), 
-            Table.Rules(
+            ITable.BetRange(0,100), 
+            ITable.Rules(
                 2, // deckCount
-                Table.DeckReset.EveryHand,
+                ITable.DeckReset.EveryHand,
                 false, // dealerHitOnSoft17
                 false, // allowDoubleAfterSplit
-                Table.DoubleRule.Any, // doubleRule
+                ITable.DoubleRule.Any, // doubleRule
                 3, // maxResplitHands
                 true, // allowResplitAces
                 true, // allowHitSplitAces

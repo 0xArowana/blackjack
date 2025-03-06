@@ -10,9 +10,10 @@ import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Table} from "./Table.sol";
+import {IPit} from "./interfaces/IPit.sol";
+import {ITable} from "./interfaces/ITable.sol";
 
-contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable, ReentrancyGuard {
+contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable, ReentrancyGuard {
     error Pit__CurrencyNotEth();
     error Pit__InsufficientBalance();
     error Pit__InsufficientManagerBalance();
@@ -50,24 +51,12 @@ contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable
         uint32 callbackGasLimit;
     }
 
-    struct TokenState {
-        uint256 balance;
-        uint256 allocated;
-    }
-
-    struct TokenInfo {
-        address id;
-        string symbol;
-        string name;
-        uint8 decimals;
-    }
-
     struct ManagerToken {
         TokenInfo info;
         TokenState state;
     }
 
-    event TableCreated(address indexed tableAddress, address indexed managerAddress, Table.BetRange betRange);
+    event TableCreated(address indexed tableAddress, address indexed managerAddress, ITable.BetRange betRange);
     event Received(address indexed sender, uint256 indexed value);
 
     modifier onlyTable {
@@ -78,7 +67,7 @@ contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable
     }
 
     modifier onlyManager(address _table) {
-        if (Table(payable(_table)).s_manager() != msg.sender) {
+        if (ITable(_table).manager() != msg.sender) {
             revert Pit__NotManager();
         }
         _;
@@ -116,7 +105,7 @@ contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable
             address[] memory tables = s_managerToTables[msg.sender];
 
             for (uint256 i = 0; i < tables.length; i++) {
-                Table(payable(tables[i])).unlock();
+                ITable(tables[i]).unlock();
             }
         }
 
@@ -181,7 +170,7 @@ contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable
                 ERC20(_token).approve(msg.sender, absValue);
             }
 
-            Table(msg.sender).clearDebt{value: ethAmount}();
+            ITable(msg.sender).clearDebt{value: ethAmount}();
 
             // Lock tables if token balance less than allocated
             // NOTE: This should never happen - test this invariant
@@ -189,9 +178,9 @@ contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable
                 address[] memory tables = s_managerToTables[msg.sender];
 
                 for (uint256 i = 0; i < tables.length; i++) {
-                    Table table = Table(tables[i]);
+                    ITable table = ITable(tables[i]);
                     
-                    if (table.s_token() == _token) {
+                    if (table.token() == _token) {
                         table.lock();
                     }
                 }
@@ -243,7 +232,7 @@ contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable
             revert Pit__VrfRequestNotFound();
         }
 
-        Table(payable(table)).fulfillRandomWords(_randomWords);
+        ITable(table).fulfillRandomWords(_randomWords);
         
         uint256 gasUsed = startingGas - gasleft();
         uint256 gasCost = gasUsed * tx.gasprice;
@@ -263,15 +252,15 @@ contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable
 
     function createTable(
         uint8 _seatCount,
-        Table.BetRange memory _betRange,
-        Table.Rules memory _rules,
+        ITable.BetRange memory _betRange,
+        ITable.Rules memory _rules,
         address _token
     ) external approveToken(_token, true) {        
         address table = Clones.clone(s_tableImplementation);
         s_tableToManager[table] = msg.sender;
         s_managerToTables[msg.sender].push(table);
 
-        Table(payable(table)).initialize(
+        ITable(table).initialize(
             msg.sender, 
             _seatCount,
             _betRange,
@@ -290,12 +279,20 @@ contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable
         s_playerToTable[_player] = address(0);
     }
 
-    function getManagerTableInfo(address _manager) external view returns (Table.TableInfo[] memory) {
+    function getPlayerTable(address _player) external view returns (address) {
+        return s_playerToTable[_player];
+    }
+
+    function getManagerTokenState(address _manager, address _token) external view returns (TokenState memory) {
+        return s_managerToTokenToState[_manager][_token];
+    }
+
+    function getManagerTableInfo(address _manager) external view returns (ITable.TableInfo[] memory) {
         address[] storage tables = s_managerToTables[_manager];
-        Table.TableInfo[] memory tableInfo = new Table.TableInfo[](tables.length);
+        ITable.TableInfo[] memory tableInfo = new ITable.TableInfo[](tables.length);
 
         for (uint8 i = 0; i < tables.length; i++) {
-            tableInfo[i] = Table(tables[i]).getTableInfo();
+            tableInfo[i] = ITable(tables[i]).getTableInfo();
         }
 
         return tableInfo;
@@ -328,9 +325,9 @@ contract Pit is Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable
         return tokens;
     }
 
-    function getPlayerTableInfo(address _player) external view returns (Table.TableInfo memory) {
+    function getPlayerTableInfo(address _player) external view returns (ITable.TableInfo memory) {
         address table = s_playerToTable[_player];
-        return Table(table).getTableInfo();
+        return ITable(table).getTableInfo();
     }
     
     function max(uint256 a, uint256 b) internal pure returns (uint256) {

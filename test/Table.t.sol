@@ -7,7 +7,9 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {TableHarness} from "./util/TableHarness.sol";
 import {PitHarness} from "./util/PitHarness.sol";
 import {ERC20Mock} from "./util/ERC20Mock.sol";
+import {ITable} from "../src/interfaces/ITable.sol";
 import {Table} from "../src/Table.sol";
+import {IPit} from "../src/interfaces/IPit.sol";
 import {Pit} from "../src/Pit.sol";
 
 contract TableTest is Test {
@@ -33,14 +35,14 @@ contract TableTest is Test {
         address manager = vm.randomAddress();
         pit.setTableToManager(address(table), manager);
         address token = address(new ERC20Mock());
-        pit.setManagerToTokenToState(manager, token, Pit.TokenState(100e18, 0));
+        pit.setManagerToTokenToState(manager, token, IPit.TokenState(100e18, 0));
 
-        Table.Rules memory rules = Table.Rules(
+        ITable.Rules memory rules = ITable.Rules(
             8, // deckCount
-            Table.DeckReset.FourDecksLeft, // deckReset
+            ITable.DeckReset.FourDecksLeft, // deckReset
             false, // dealerHitOnSoft17
             false, // allowDoubleAfterSplit
-            Table.DoubleRule.Any, // doubleRule
+            ITable.DoubleRule.Any, // doubleRule
             3, // maxResplitHands
             true, // allowResplitAces
             true, // allowHitSplitAces
@@ -52,7 +54,7 @@ contract TableTest is Test {
         table.initialize(
             manager, 
             7, 
-            Table.BetRange(1, 100), 
+            ITable.BetRange(1, 100), 
             rules, 
             token
         );
@@ -71,13 +73,13 @@ contract TableTest is Test {
     function test_initialize_SetsStateVariables() public {
         address manager = vm.randomAddress();
         uint8 maxPlayers = uint8(vm.randomUint());
-        Table.BetRange memory betRange = Table.BetRange(vm.randomUint(), vm.randomUint());
-        Table.Rules memory rules = Table.Rules(
+        ITable.BetRange memory betRange = ITable.BetRange(vm.randomUint(), vm.randomUint());
+        ITable.Rules memory rules = ITable.Rules(
             uint8(vm.randomUint()),
-            Table.DeckReset(vm.randomUint() % 3),
+            ITable.DeckReset(vm.randomUint() % 3),
             vm.randomBool(),
             vm.randomBool(),
-            Table.DoubleRule(vm.randomUint() % 3),
+            ITable.DoubleRule(vm.randomUint() % 3),
             uint8(vm.randomUint()),
             vm.randomBool(),
             vm.randomBool(),
@@ -93,11 +95,11 @@ contract TableTest is Test {
         table.initialize(manager, maxPlayers, betRange, rules, token);
 
         assertEq(table.owner(), address(pit));
-        assertEq(table.s_manager(), manager);
+        assertEq(table.manager(), manager);
         assertEq(table.getSeatCount(), maxPlayers);
         assertEq(keccak256(abi.encode(table.getBetRange())), keccak256(abi.encode(betRange)));
         assertEq(keccak256(abi.encode(table.getRules())), keccak256(abi.encode(rules)));
-        assertEq(table.s_token(), token);
+        assertEq(table.token(), token);
         assertEq(table.getDrawableCards().length, 52);   
     }
 
@@ -197,11 +199,11 @@ contract TableTest is Test {
         vm.prank(manager);
         table.startBets();
 
-        assertEq(uint(table.getGameStatus()), uint(Table.GameStatus.Bet));
+        assertEq(uint(table.getGameStatus()), uint(ITable.GameStatus.Bet));
     }
 
     function test_startBets_RevertsIfNotInactive() public {
-        table.setGameStatus(Table.GameStatus.DealerTurn);
+        table.setGameStatus(ITable.GameStatus.DealerTurn);
 
         address manager = vm.randomAddress();
         table.setManager(manager);
@@ -222,7 +224,7 @@ contract TableTest is Test {
 
     // finalizeBets
     function test_finalizeBets_AllocatesFunds() public {
-        (Table.Rules memory rules, address token,) = fullSetup();
+        (ITable.Rules memory rules, address token,) = fullSetup();
 
         table.setBetTotal(789);
         
@@ -271,7 +273,7 @@ contract TableTest is Test {
 
         table.callFinalizeBets();
         assertEq(table.s_lockTimestamp(), 0);
-        assertEq(uint(table.getGameStatus()), uint(Table.GameStatus.PlayerTurn));
+        assertEq(uint(table.getGameStatus()), uint(ITable.GameStatus.PlayerTurn));
     }
 
     function test_sit() public {
@@ -333,7 +335,7 @@ contract TableTest is Test {
     function test_placeBet() public {
         fullSetup();
 
-        table.setGameStatus(Table.GameStatus.Bet);
+        table.setGameStatus(ITable.GameStatus.Bet);
 
         vm.startPrank(vm.randomAddress());
         table.sit(2);
