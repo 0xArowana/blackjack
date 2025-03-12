@@ -67,7 +67,7 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
     }
 
     modifier onlyManager(address _table) {
-        if (ITable(_table).manager() != msg.sender) {
+        if (ITable(_table).getManager() != msg.sender) {
             revert Pit__NotManager();
         }
         _;
@@ -180,7 +180,7 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
                 for (uint256 i = 0; i < tables.length; i++) {
                     ITable table = ITable(tables[i]);
                     
-                    if (table.token() == _token) {
+                    if (table.getToken() == _token) {
                         table.lock();
                     }
                 }

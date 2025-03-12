@@ -4,6 +4,8 @@ pragma solidity ^0.8.18;
 import {Table} from "../../src/Table.sol";
 
 contract TableHarness is Table {
+    Hand public s_hand;
+
     function getSeatCount() external view returns (uint8) {
         return s_seatCount;
     }
@@ -58,5 +60,29 @@ contract TableHarness is Table {
 
     function callFinalizeBets() external {
         finalizeBets();
+    }
+
+    function setRandomWords(uint256[] calldata _randomWords) external {
+        s_randomWords = _randomWords;
+    }
+
+    function callAddCardToHand() external {
+        addCardToHand(s_hand);
+    }
+
+    function getCard(uint256 _index) external view returns (uint8) {
+        return s_hand.cards[_index];
+    }
+    
+    function callResetDecks() external {
+        resetDecks();
+    }
+
+    function callInitialDeal() external {
+        initialDeal();
+    }
+
+    function callNextTurn() external {
+        nextTurn();
     }
 }

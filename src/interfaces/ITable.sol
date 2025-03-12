@@ -67,19 +67,20 @@ interface ITable {
       uint256 lockTimestamp;
     }
 
-    function token() external view returns (address);
+    function initialize(address _manager, uint8 _seatCount, BetRange memory _betRange, Rules memory _rules, address _token) external;
 
-    function manager() external view returns (address);
+    function getToken() external view returns (address);
+
+    function getManager() external view returns (address);
+
+    function getTableInfo() external view returns(TableInfo memory);
 
     function lock() external;
 
     function unlock() external;
 
-    function getTableInfo() external view returns(TableInfo memory);
-
     function clearDebt() external payable;
 
     function fulfillRandomWords(uint256[] calldata _randomWords) external;
 
-    function initialize(address _manager, uint8 _seatCount, BetRange memory _betRange, Rules memory _rules, address _token) external;
 }

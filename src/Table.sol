@@ -78,7 +78,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     address internal s_token;
     address internal s_manager;
-    mapping (uint8 => Seat) internal s_seats;
+    mapping (uint8 => Seat) public s_seats;
     mapping(address => uint256) internal s_playerToBalance;
     uint256 public s_lockTimestamp;
     GameStatus public s_gameStatus;
@@ -91,6 +91,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     uint256 internal s_betTotal;
     uint256 internal s_gameMaxPayout;
     uint8[] internal s_drawableCards;
+    uint256[] internal s_randomWords;
     DrawRequest internal s_drawRequest;
     mapping(uint8 => uint8) internal s_cardToDrawCount;
     uint16 internal s_totalCardsDrawn;
@@ -99,7 +100,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     event BetPlaced(address indexed player, uint256 indexed amount);
     event BetsStarted();
     event CardDrawn(uint8 indexed card);
-    event RandomWordsFulfilled(DrawRequest indexed drawRequest);
+    event RandomWordsFulfilled(DrawRequest indexed drawRequest, uint256[] indexed randomWords);
     event GameStarted();
     event Hit(uint8 indexed card);
     event PlayerSeated(address indexed player, uint8 indexed seat);
@@ -127,7 +128,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     modifier whenEmpty {
-        for (uint8 i = 0; i < 7; i++) {
+        for (uint8 i = 1; i <= 7; i++) {
             if (s_seats[i].info.player != address(0)) {
                 revert Table__NotEmpty();
             }
@@ -218,19 +219,27 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         pit.allocate(newAllocation, _token);
     }
 
-    function token() external view returns (address) {
+    function getToken() external view returns (address) {
         return s_token;
     }
 
-    function manager() external view returns (address) {
+    function getManager() external view returns (address) {
         return s_manager;
+    }
+
+    function getCurrentSeatIndex() external view returns (uint8) {
+        return s_currentSeatIndex;
+    }
+
+    function getDealerHand() external view returns (Hand memory) {
+        return s_dealerHand;
     }
 
     function getTableInfo() external view returns(TableInfo memory) {
         SeatInfo[] memory seats = new SeatInfo[](s_seatCount);
 
         for (uint8 i = 0; i < s_seatCount; i++) {
-            seats[i] = s_seats[i].info;
+            seats[i] = s_seats[i + 1].info;
         }
 
         IPit.TokenInfo memory tokenInfo = IPit.TokenInfo(
@@ -259,7 +268,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         Seat[] memory seats = new Seat[](s_seatCount);
 
         for (uint8 i = 0; i < s_seatCount; i++) {
-            seats[i] = s_seats[i];
+            seats[i] = s_seats[i + 1];
         }
 
         return seats;
@@ -290,7 +299,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         if (msg.sender == s_manager) {
             revert Table__InvalidPlayer();
         }
-        if (_index >= s_seatCount || _index < 0) {
+        if (_index > s_seatCount || _index < 1) {
             revert Table__InvalidSeat();
         }
         if (s_seats[_index].info.player != address(0)) {
@@ -333,7 +342,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         bool playerAtTable = false;
         bool missingBet = false;
 
-        for (uint8 i = 0; i < s_seatCount; i++) {
+        for (uint8 i = 1; i <= s_seatCount; i++) {
             SeatInfo storage info = s_seats[i].info;
             
             if (info.player == msg.sender) {
@@ -369,7 +378,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         bool missingBet = false;
         bool playerFound = false;
 
-        for (uint8 i = 0; i < s_seatCount; i++) {
+        for (uint8 i = 1; i <= s_seatCount; i++) {
             SeatInfo storage seatInfo = s_seats[i].info;
 
             if (seatInfo.player == address(0)) {
@@ -503,20 +512,22 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner {
-        emit RandomWordsFulfilled(s_drawRequest);
+        emit RandomWordsFulfilled(s_drawRequest, _randomWords);
+        s_randomWords = _randomWords;
         s_lockTimestamp = 0;
 
         if (s_drawRequest == DrawRequest.Start) {
-            initialDeal(_randomWords);
+            initialDeal();
         } else if (s_drawRequest == DrawRequest.Split) {  
-            split(_randomWords);
+            split();
         } else if (s_drawRequest == DrawRequest.Hit) {  
-            hit(_randomWords);
+            hit();
         } else if (s_drawRequest == DrawRequest.Dealer) {
-            dealerPlay(_randomWords);
+            dealerPlay();
         }
 
         s_drawRequest = DrawRequest.None;
+        delete s_randomWords;
     }
 
     function lock() external onlyOwner {
@@ -539,7 +550,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         
         uint32 numWords = 1;
 
-        for (uint8 i = 0; i < s_seatCount; i++) {
+        for (uint8 i = 1; i <= s_seatCount; i++) {
             if (s_seats[i].info.player != address(0)) {
                 numWords += 2;
             }
@@ -592,13 +603,14 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         IPit(owner()).requestRandomWords(_numWords);
     }
 
-    function addCardToHand(Hand storage _hand, uint256[] calldata _randomWords) internal {
-        uint256 randomWord = _randomWords[_randomWords.length - 1];
+    function addCardToHand(Hand storage _hand) internal {
+        uint256 randomWord = s_randomWords[s_randomWords.length - 1];
         uint8 cardIndex = uint8(randomWord % s_drawableCards.length);
         uint8 card = s_drawableCards[cardIndex];
 
         s_cardToDrawCount[card]++;
         s_totalCardsDrawn++;
+        s_randomWords.pop();
 
         // Remove card from drawable cards if drawn max number of times
         // Reset drawable cards if all drawn
@@ -618,37 +630,40 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function initialDeal(uint256[] calldata _randomWords) internal {
-        for (uint8 i = 0; i < s_seatCount; i++) {
+    function initialDeal() internal {
+        for (uint8 i = 1; i <= s_seatCount; i++) {
             Seat storage seat = s_seats[i];
             if (seat.info.player == address(0)) continue;
 
             Hand memory newHand;
             seat.hands.push(newHand);
-    
+
             Hand storage hand = seat.hands[0];
-            addCardToHand(hand, _randomWords);
-            addCardToHand(hand, _randomWords);
+            addCardToHand(hand);
+            addCardToHand(hand);
         }
 
-        addCardToHand(s_dealerHand, _randomWords);
+        Hand memory dealerHand;
+        s_dealerHand = dealerHand;
+        addCardToHand(s_dealerHand);
         uint256 value = s_dealerHand.minValue;
 
         if (s_rules.allowInsurance && (value == 10 || value == 1)) {
             s_gameStatus = GameStatus.Insurance;
         } else {
             s_gameStatus = GameStatus.PlayerTurn;
+            nextTurn();
         }
 
         emit GameStarted();
     }
 
-    function split(uint256[] calldata _randomWords) internal {
+    function split() internal {
         (Hand storage hand1,) = getActiveHand();
         uint8 splitCard = hand1.cards[1];
         uint8 cardValue = getCardMinValue(splitCard);
 
-        addCardToHand(hand1, _randomWords);
+        addCardToHand(hand1);
         hand1.minValue -= cardValue;
 
         Hand memory newHand;
@@ -659,12 +674,12 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         hand2.cards.push(splitCard);
         hand2.minValue = cardValue;
         hand2.aceCount = cardValue == 1 ? 1 : 0;
-        addCardToHand(hand2, _randomWords);
+        addCardToHand(hand2);
     }
 
-    function hit(uint256[] calldata _randomWords) internal {
+    function hit() internal {
         (Hand storage hand, uint256 index) = getActiveHand();
-        addCardToHand(hand, _randomWords);
+        addCardToHand(hand);
 
         if (hand.minValue > 21) {
             finishHand(index, HandStatus.Bust);
@@ -704,7 +719,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     function nextTurn() internal {
         uint8 nextSeatIndex;
 
-        for (uint8 i = s_currentSeatIndex + 1; i < s_seatCount; i++) {
+        for (uint8 i = s_currentSeatIndex + 1; i <= s_seatCount; i++) {
             if (isSeatActive(s_seats[i].info)) {
                 nextSeatIndex = i;
                 break;
@@ -719,12 +734,12 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function dealerPlay(uint256[] calldata _randomWords) internal {
-        addCardToHand(s_dealerHand, _randomWords);
+    function dealerPlay() internal {
+        addCardToHand(s_dealerHand);
         uint256 dealerHandValue = getHandValue(s_dealerHand);
 
         if (dealerHandValue < 17 || (dealerHandValue == 17 && s_dealerHand.aceCount > 0 && s_rules.dealerHitOnSoft17)) {
-            dealerPlay(_randomWords);
+            dealerPlay();
             return;
         }
 
@@ -734,7 +749,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         int256 earnings;
 
-        for (uint8 i = 0; i < s_seatCount; i++) {
+        for (uint8 i = 1; i <= s_seatCount; i++) {
             Seat storage seat = s_seats[i];
             if (!isSeatActive(seat.info)) continue;
 

@@ -58,13 +58,14 @@ contract TableTest is Test {
             rules, 
             token
         );
-        
-        // uint256[] memory words = new uint256[](10);
-        // for (uint256 i = 0; i < 10; i++) {
-        //     words[i] = vm.randomUint();
-        // }
-        // vm.prank(address(pit));
-        // table.fulfillRandomWords(words);
+
+        table.callResetDecks();
+
+        uint256[] memory words = new uint256[](10);
+        for (uint256 i = 0; i < 10; i++) {
+            words[i] = vm.randomUint();
+        }
+        table.setRandomWords(words);
 
         return (rules, token, manager);
     }
@@ -95,11 +96,11 @@ contract TableTest is Test {
         table.initialize(manager, maxPlayers, betRange, rules, token);
 
         assertEq(table.owner(), address(pit));
-        assertEq(table.manager(), manager);
+        assertEq(table.getManager(), manager);
         assertEq(table.getSeatCount(), maxPlayers);
         assertEq(keccak256(abi.encode(table.getBetRange())), keccak256(abi.encode(betRange)));
         assertEq(keccak256(abi.encode(table.getRules())), keccak256(abi.encode(rules)));
-        assertEq(table.token(), token);
+        assertEq(table.getToken(), token);
         assertEq(table.getDrawableCards().length, 52);   
     }
 
@@ -290,48 +291,6 @@ contract TableTest is Test {
         console.log("TABLE INFO... %d %s", seats.length, seats[3].player);
     }
 
-    // function test_drawCards() public {
-    //     address[] memory playerAddresses = new address[](2);
-    //     playerAddresses[0] = player1;
-    //     playerAddresses[1] = player3;
-
-    //     // game.callFetchCards(playerAddresses, 3);
-
-    //     address[] memory playersStored; //game.getPlayersDrawingCards();
-    //     assertEq(playersStored.length, 2);
-    //     assertEq(playersStored[0], player1);
-    //     assertEq(playersStored[1], player3);
-
-    //     assertEq(table.drawCardsCallCount(), 1);
-
-    //     uint8[50] memory cards;
-
-    //     for (uint256 i = 0; i < 50; i++) {
-    //         cards[i] = uint8(int8(vm.randomInt())) % 50;
-    //     }
-
-    //     vm.prank(address(table));
-    //     // game.cardsDrawn(cards);
-
-    //     uint8[] memory hand1 = game.getPlayerState(player1).hand;
-    //     assertEq(hand1.length, 3);
-    //     assertEq(hand1[0], cards[0]);
-    //     assertEq(hand1[1], cards[1]);
-    //     assertEq(hand1[2], cards[2]);
-
-    //     uint8[] memory hand2 = game.getPlayerState(player2).hand;
-    //     assertEq(hand2.length, 0);
-
-    //     uint8[] memory hand3 = game.getPlayerState(player3).hand;
-    //     assertEq(hand3.length, 3);
-    //     assertEq(hand3[0], cards[3]);
-    //     assertEq(hand3[1], cards[4]);
-    //     assertEq(hand3[2], cards[5]);
-
-    //     uint8[] memory hand4 = game.getPlayerState(player4).hand;
-    //     assertEq(hand4.length, 0);
-    // }
-
     function test_placeBet() public {
         fullSetup();
 
@@ -353,5 +312,50 @@ contract TableTest is Test {
         }
         vm.prank(address(pit));
         table.fulfillRandomWords(words);
+    }
+
+    function test_tableInitialDeal() public {
+        fullSetup();
+
+        table.callInitialDeal();
+    }
+
+    function test_tableAddCardToHand() public {
+        uint256 randomWord1 = vm.randomUint();
+        uint256 randomWord2 = vm.randomUint();
+        uint256 randomWord3 = vm.randomUint();
+
+        uint256[] memory randomWords = new uint256[](3);
+        randomWords[0] = randomWord1;
+        randomWords[1] = randomWord2;
+        randomWords[2] = randomWord3;
+        table.setRandomWords(randomWords);
+
+        table.callAddCardToHand();
+        table.callAddCardToHand();
+        table.callAddCardToHand();
+
+        uint256 totalCards = table.getDrawableCards().length;
+        console.logUint(totalCards);
+
+        console.logUint(table.getCard(0));
+        console.logUint(table.getCard(1));
+        console.logUint(table.getCard(2));
+
+        console.logUint(uint8(randomWord1 % totalCards));
+        console.logUint(uint8(randomWord2 % totalCards));
+        console.logUint(uint8(randomWord3 % totalCards));
+    }
+
+    function test_tableNextTurn() public {
+        fullSetup();
+        table.sit(3);
+        table.sit(5);
+        table.setCurrentSeatIndex(6);
+
+        table.callNextTurn();
+
+        console.logString("CURRENT SEAT AFTER");
+        console.logUint(table.getCurrentSeatIndex());
     }
 }
