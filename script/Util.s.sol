@@ -63,3 +63,13 @@ contract PlaceBet is Script {
         vm.stopBroadcast();
     }
 }
+
+contract Hit is Script {
+    function run() external {
+        vm.startBroadcast();
+        // Pit pit = Pit(payable(0x1816fBdAb809D6B67Ce7CF75586E51A4795d5534));
+        Table table = Table(0xE9b8cCa7B4A33Eed6193fB7F1B768243B302f8df);
+        table.requestHit();
+        vm.stopBroadcast();
+    }
+}

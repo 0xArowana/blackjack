@@ -45,6 +45,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__NotPlayerTurnStatus();
     error Table__CashOutTransferFailed();
     error Table__TokenTransferFailed();
+    error Table__TimeoutNotReached();
 
     /// @notice The info and hands of a seat
     struct Seat {
@@ -78,9 +79,10 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     address internal s_token;
     address internal s_manager;
-    mapping (uint8 => Seat) public s_seats;
+    mapping (uint8 => Seat) internal s_seats;
     mapping(address => uint256) internal s_playerToBalance;
     uint256 public s_lockTimestamp;
+    uint256 internal s_lastInteraction;
     GameStatus public s_gameStatus;
     Hand internal s_dealerHand;
     uint8 internal s_currentSeatIndex;
@@ -118,13 +120,20 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     modifier onlyCurrentSeat {
-        if (s_gameStatus != GameStatus.PlayerTurn) {
-            revert Table__NotPlayerTurnStatus();
+        if (!updateCurrentSeat()) {
+            return;
         }
+
         if (msg.sender != s_seats[s_currentSeatIndex].info.player) {
             revert Table__NotCurrentSeat();
         }
+
         _;
+    }
+
+    modifier setInteraction {
+        _;
+        s_lastInteraction = block.timestamp;
     }
 
     modifier whenEmpty {
@@ -290,7 +299,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_token = _token;
     }
 
-    function startBets() external onlyManager whenInactive whenUnlocked {
+    function startBets() external onlyManager whenInactive setInteraction whenUnlocked {
         s_gameStatus = GameStatus.Bet;
         emit BetsStarted();
     }
@@ -316,6 +325,10 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         SeatInfo storage seatInfo = s_seats[_index].info;
         seatInfo.waiting = s_gameStatus != GameStatus.Inactive && s_gameStatus != GameStatus.Bet;
         seatInfo.player = msg.sender;
+
+        if (s_gameStatus == GameStatus.Bet) {
+            s_lastInteraction = block.timestamp;
+        }
 
         pit.playerSeated(msg.sender);
         emit PlayerSeated(msg.sender, _index);
@@ -423,7 +436,28 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function double() payable external onlyCurrentSeat whenUnlocked checkCurrency nonReentrant {
+    function forceStart() external whenBet {
+        uint256 elapsed = block.timestamp - s_lastInteraction;
+        uint256 timeout = IPit(owner()).getTimeout();
+
+        if (timeout > elapsed) {
+            revert Table__TimeoutNotReached();
+        }
+
+        for (uint8 i = 1; i <= s_seatCount; i++) {
+            SeatInfo storage seatInfo = s_seats[i].info;
+
+            if (seatInfo.player != address(0) && seatInfo.bet == 0) {
+                IPit(owner()).playerLeft(seatInfo.player);
+                seatInfo.player = address(0);
+                seatInfo.waiting = false;
+            }
+        }
+
+        finalizeBets();
+    }
+
+    function double() payable external onlyCurrentSeat whenUnlocked setInteraction checkCurrency nonReentrant {
         (Hand storage hand,) = getActiveHand();
 
         if (hand.cards.length > 2) {
@@ -442,7 +476,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         increaseBet();
     }
 
-    function requestSplit() payable external onlyCurrentSeat whenUnlocked checkCurrency nonReentrant {
+    function requestSplit() payable external onlyCurrentSeat whenUnlocked setInteraction checkCurrency nonReentrant {
         Seat storage seat = s_seats[s_currentSeatIndex];
 
         if (seat.hands.length == s_rules.maxResplitHands) {
@@ -464,11 +498,11 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         draw(DrawRequest.Split, 2);
     }
 
-    function requestHit() external onlyCurrentSeat whenUnlocked {
+    function requestHit() external onlyCurrentSeat whenUnlocked setInteraction {
         draw(DrawRequest.Hit, 1);
     }
 
-    function stand() external onlyCurrentSeat whenUnlocked {
+    function stand() external onlyCurrentSeat whenUnlocked setInteraction {
         (, uint256 index) = getActiveHand();
         finishHand(index, HandStatus.Stand);
     }
@@ -577,6 +611,54 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         for (uint8 i = 1; i < 53; i++) {
             s_cardToDrawCount[i] = 0;
             s_drawableCards.push(i);
+        }
+    }
+
+    function updateCurrentSeat() public returns (bool) {
+        if (s_gameStatus != GameStatus.PlayerTurn) {
+            revert Table__NotPlayerTurnStatus();
+        }
+
+        uint256 elapsed = block.timestamp - s_lastInteraction;
+        uint256 timeout = IPit(owner()).getTimeout();
+
+        if (timeout > elapsed) {
+            skipSeat(s_currentSeatIndex);
+
+            uint256 seatsToSkip = (elapsed / timeout) - 1;
+
+            for (uint8 i = s_currentSeatIndex + 1; i <= s_seatCount; i++) {
+                if (seatsToSkip == 0) {
+                    s_currentSeatIndex = i;
+                    break;
+                }
+
+                if (isSeatActive(s_seats[i].info)) {
+                    skipSeat(i);
+                    seatsToSkip--;
+                }
+            }
+
+            if (seatsToSkip > 0) {
+                s_currentSeatIndex = 0;
+                s_gameStatus = GameStatus.DealerTurn;
+                draw(DrawRequest.Dealer, 12);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    function skipSeat(uint8 _index) internal {
+        Hand[] storage hands = s_seats[_index].hands;
+
+        for (uint8 i = 0; i < hands.length; i++) {
+            Hand storage hand = hands[i];
+
+            if (hand.status == HandStatus.Active) {
+                hand.status = HandStatus.Stand;
+            }
         }
     }
 

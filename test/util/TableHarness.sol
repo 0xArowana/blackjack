@@ -62,6 +62,10 @@ contract TableHarness is Table {
         finalizeBets();
     }
 
+    function getRandomWords() external view returns (uint256[] memory) {
+        return s_randomWords;
+    }
+
     function setRandomWords(uint256[] calldata _randomWords) external {
         s_randomWords = _randomWords;
     }
@@ -84,5 +88,9 @@ contract TableHarness is Table {
 
     function callNextTurn() external {
         nextTurn();
+    }
+
+    function callHit() external {
+        hit();
     }
 }

@@ -14,6 +14,8 @@ interface IPit {
     uint256 allocated;
   }
 
+  function getTimeout() external view returns (uint256);
+
   function getPlayerTable(address _player) external view returns (address);
 
   function getManagerTokenState(address _manager, address _token) external view returns (TokenState memory);

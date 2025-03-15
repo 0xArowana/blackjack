@@ -27,7 +27,7 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
     // Config
     address[] private s_tokens;
     address s_pool;
-    uint256 public s_playerTimeout;
+    uint256 public s_timeout;
 
     // Chainlink VRF
     VrfConfig internal s_vrfConfig;
@@ -121,7 +121,7 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
     function initialize(
         address[] memory _tokens,
         address _pool,
-        uint256 _playerTimeout,
+        uint256 _timeout,
         VrfConfig memory _vrfConfig,
         address _tableImplementation
     ) public initializer {
@@ -130,7 +130,7 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
         
         s_tokens = _tokens;
         s_pool = _pool;
-        s_playerTimeout = _playerTimeout;
+        s_timeout = _timeout;
         s_vrfConfig = _vrfConfig;
         s_tableImplementation = _tableImplementation;
     }
@@ -141,8 +141,8 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
         s_tokens = _tokens;
     }
 
-    function setPlayerTimeout(uint256 _seconds) external onlyOwner {
-        s_playerTimeout = _seconds;
+    function setTimeout(uint256 _seconds) external onlyOwner {
+        s_timeout = _seconds;
     }
 
     function allocate(uint256 _amount, address _token) external onlyTable {
@@ -277,6 +277,10 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
 
     function playerLeft(address _player) external onlyTable {
         s_playerToTable[_player] = address(0);
+    }
+
+    function getTimeout() external view returns (uint256) {
+        return s_timeout;
     }
 
     function getPlayerTable(address _player) external view returns (address) {

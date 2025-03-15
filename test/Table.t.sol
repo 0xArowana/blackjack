@@ -358,4 +358,35 @@ contract TableTest is Test {
         console.logString("CURRENT SEAT AFTER");
         console.logUint(table.getCurrentSeatIndex());
     }
+
+    function test_tableHit() public {
+        fullSetup();
+        table.sit(2);
+        table.sit(3);
+
+        uint256[] memory randomWords = new uint256[](6);
+        for (uint256 i = 0; i < 6; i++) {
+            randomWords[i] = 30;
+        }
+        table.setRandomWords(randomWords);
+        table.callInitialDeal();
+
+        console.logString("RANDOM WORDS LENGTH...");
+        console.logUint(table.getRandomWords().length);
+
+        console.logString("Seat Index Before hit");
+        console.logUint(table.getCurrentSeatIndex());
+        console.logString("Hand status Before hit");
+        Table.Hand memory handBefore = table.getSeats()[1].hands[0];
+        console.log("Hand status before: %i", uint256(handBefore.status));
+
+        table.callHit();
+
+        Table.Hand memory handAfter = table.getSeats()[1].hands[0];
+        console.logString("Min value after");
+        console.logUint(handAfter.minValue);
+        console.logString("Seat Index after hit");
+        console.logUint(table.getCurrentSeatIndex()); 
+        console.log("Hand status after: %i", uint256(handAfter.status));    
+    }
 }
