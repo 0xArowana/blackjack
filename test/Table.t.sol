@@ -389,4 +389,26 @@ contract TableTest is Test {
         console.logUint(table.getCurrentSeatIndex()); 
         console.log("Hand status after: %i", uint256(handAfter.status));    
     }
+
+    function test_tableDealerPlay() public {
+        fullSetup();
+        table.sit(2);
+        table.sit(3);
+        uint256[] memory randomWords = new uint256[](9);
+        randomWords[0] = 34;
+        randomWords[1] = 34;
+        randomWords[2] = 34;
+        randomWords[3] = 34;
+        randomWords[4] = 34;
+        randomWords[5] = 38;
+        randomWords[6] = 38;
+        randomWords[7] = 30;
+        randomWords[8] = 30;
+        table.setRandomWords(randomWords);
+        table.callInitialDeal();
+
+        table.callDealerPlay();
+        table.getSeats();
+        table.getDealerHand();
+    }
 }

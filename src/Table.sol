@@ -2,6 +2,7 @@
 pragma solidity ^0.8.18;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {console} from "forge-std/console.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -28,13 +29,13 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__Locked();
     error Table__NoCards();
     error Table__NotEmpty();
+    error Table__NotInactiveOrBetStatus();
     error Table__PlayerAlreadySeated();
     error Table__PlayerNotFound();
     error Table__SeatOccupied();
     error Table__BetAlreadyPlaced();
     error Table__BetLessThanMin();
     error Table__BettingInProgress();
-    error Table__GameInProgress();
     error Table__MaxResplitHandsReached();
     error Table__NoActiveHand();
     error Table__NoBalanceAvailable();
@@ -80,7 +81,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     address internal s_token;
     address internal s_manager;
     mapping (uint8 => Seat) internal s_seats;
-    mapping(address => uint256) internal s_playerToBalance;
+    mapping(address => uint256) public s_playerToBalance;
     uint256 public s_lockTimestamp;
     uint256 internal s_lastInteraction;
     GameStatus public s_gameStatus;
@@ -120,15 +121,11 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     modifier onlyCurrentSeat {
-        if (!updateCurrentSeat()) {
-            return;
-        }
+        updateCurrentSeat();
 
-        if (msg.sender != s_seats[s_currentSeatIndex].info.player) {
-            revert Table__NotCurrentSeat();
+        if (msg.sender == s_seats[s_currentSeatIndex].info.player) {
+            _;
         }
-
-        _;
     }
 
     modifier setInteraction {
@@ -161,7 +158,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
 
     modifier whenInactiveOrBet {
         if (s_gameStatus != GameStatus.Bet && s_gameStatus != GameStatus.Inactive) {
-            revert Table__GameInProgress();
+            revert Table__NotInactiveOrBetStatus();
         }
         _;
     }
@@ -436,7 +433,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function forceStart() external whenBet {
+    function forceStart() whenBet external {
         uint256 elapsed = block.timestamp - s_lastInteraction;
         uint256 timeout = IPit(owner()).getTimeout();
 
@@ -476,7 +473,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         increaseBet();
     }
 
-    function requestSplit() payable external onlyCurrentSeat whenUnlocked setInteraction checkCurrency nonReentrant {
+    function requestSplit() external payable onlyCurrentSeat whenUnlocked setInteraction checkCurrency nonReentrant {
         Seat storage seat = s_seats[s_currentSeatIndex];
 
         if (seat.hands.length == s_rules.maxResplitHands) {
@@ -545,7 +542,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         }
     }
 
-    function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner {
+    function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner setInteraction {
         emit RandomWordsFulfilled(s_drawRequest, _randomWords);
         s_randomWords = _randomWords;
         s_lockTimestamp = 0;
@@ -574,6 +571,39 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (s_gameStatus == GameStatus.Pending) {
             startGame();
+        }
+    }
+
+    function updateCurrentSeat() public {
+        if (s_gameStatus != GameStatus.PlayerTurn) {
+            revert Table__NotPlayerTurnStatus();
+        }
+
+        uint256 elapsed = block.timestamp - s_lastInteraction;
+        uint256 timeout = IPit(owner()).getTimeout();
+
+        if (timeout < elapsed) {
+            skipSeat(s_currentSeatIndex);
+
+            uint256 seatsToSkip = (elapsed / timeout) - 1;
+
+            for (uint8 i = s_currentSeatIndex + 1; i <= s_seatCount; i++) {
+                if (seatsToSkip == 0) {
+                    s_currentSeatIndex = i;
+                    break;
+                }
+
+                if (isSeatActive(s_seats[i].info)) {
+                    skipSeat(i);
+                    seatsToSkip--;
+                }
+            }
+
+            if (seatsToSkip > 0) {
+                s_currentSeatIndex = 0;
+                s_gameStatus = GameStatus.DealerTurn;
+                draw(DrawRequest.Dealer, 12);
+            }
         }
     }
 
@@ -612,42 +642,6 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
             s_cardToDrawCount[i] = 0;
             s_drawableCards.push(i);
         }
-    }
-
-    function updateCurrentSeat() public returns (bool) {
-        if (s_gameStatus != GameStatus.PlayerTurn) {
-            revert Table__NotPlayerTurnStatus();
-        }
-
-        uint256 elapsed = block.timestamp - s_lastInteraction;
-        uint256 timeout = IPit(owner()).getTimeout();
-
-        if (timeout > elapsed) {
-            skipSeat(s_currentSeatIndex);
-
-            uint256 seatsToSkip = (elapsed / timeout) - 1;
-
-            for (uint8 i = s_currentSeatIndex + 1; i <= s_seatCount; i++) {
-                if (seatsToSkip == 0) {
-                    s_currentSeatIndex = i;
-                    break;
-                }
-
-                if (isSeatActive(s_seats[i].info)) {
-                    skipSeat(i);
-                    seatsToSkip--;
-                }
-            }
-
-            if (seatsToSkip > 0) {
-                s_currentSeatIndex = 0;
-                s_gameStatus = GameStatus.DealerTurn;
-                draw(DrawRequest.Dealer, 12);
-                return false;
-            }
-        }
-
-        return true;
     }
 
     function skipSeat(uint8 _index) internal {
@@ -725,8 +719,6 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
             addCardToHand(hand);
         }
 
-        Hand memory dealerHand;
-        s_dealerHand = dealerHand;
         addCardToHand(s_dealerHand);
         uint256 value = s_dealerHand.minValue;
 
@@ -828,6 +820,10 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         if (dealerHandValue > 21) {
             s_dealerHand.status = HandStatus.Bust;
         }
+    }
+
+    function finishGame() external {
+        uint256 dealerHandValue = getHandValue(s_dealerHand);
 
         int256 earnings;
 
@@ -875,9 +871,12 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
                 ERC20(s_token).approve(owner(), uint256(earnings));
             }
         } 
-        
+
         IPit(owner()).gameEnded{value: ethEarnings}(s_token, earnings, s_gameMaxPayout);
         s_gameMaxPayout = 0;
+
+        Hand memory dealerHand;
+        s_dealerHand = dealerHand;
 
         // Reset bets and hands, and seat waiting players
         for (uint8 i = 1; i <= s_seatCount; i++) {

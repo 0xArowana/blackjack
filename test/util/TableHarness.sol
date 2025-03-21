@@ -93,4 +93,8 @@ contract TableHarness is Table {
     function callHit() external {
         hit();
     }
+
+    function callDealerPlay() external {
+        dealerPlay();
+    }
 }
