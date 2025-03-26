@@ -46,7 +46,6 @@ interface ITable {
 
     // @notice The status of the current game
     enum GameStatus {
-        Inactive,
         Bet,
         Pending,
         Insurance,

@@ -86,8 +86,8 @@ contract TableHarness is Table {
         initialDeal();
     }
 
-    function callNextTurn() external {
-        nextTurn();
+    function callNextTurn(bool _bust) external {
+        nextTurn(_bust);
     }
 
     function callHit() external {

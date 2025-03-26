@@ -192,37 +192,6 @@ contract TableTest is Test {
         table.cashOut();
     }
 
-    // startBets
-    function test_startBets_UpdatesGameStatus() public {
-        address manager = vm.randomAddress();
-        table.setManager(manager);
-
-        vm.prank(manager);
-        table.startBets();
-
-        assertEq(uint(table.getGameStatus()), uint(ITable.GameStatus.Bet));
-    }
-
-    function test_startBets_RevertsIfNotInactive() public {
-        table.setGameStatus(ITable.GameStatus.DealerTurn);
-
-        address manager = vm.randomAddress();
-        table.setManager(manager);
-
-        vm.prank(manager);
-        vm.expectRevert(bytes4(keccak256("Table__NotInactiveStatus()")));
-        table.startBets();
-    }
-
-    function test_startBets_RevertsIfNotManager() public {
-        address manager = vm.randomAddress();
-        table.setManager(manager);
-
-        vm.prank(vm.randomAddress());
-        vm.expectRevert(bytes4(keccak256("Table__NotManager()")));
-        table.startBets();
-    }
-
     // finalizeBets
     function test_finalizeBets_AllocatesFunds() public {
         (ITable.Rules memory rules, address token,) = fullSetup();
@@ -353,7 +322,7 @@ contract TableTest is Test {
         table.sit(5);
         table.setCurrentSeatNumber(6);
 
-        table.callNextTurn();
+        table.callNextTurn(false);
 
         console.logString("CURRENT SEAT AFTER");
         console.logUint(table.getCurrentSeatNumber());

@@ -29,7 +29,6 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__Locked();
     error Table__NoCards();
     error Table__NotEmpty();
-    error Table__NotInactiveOrBetStatus();
     error Table__PlayerAlreadySeated();
     error Table__PlayerNotFound();
     error Table__SeatOccupied();
@@ -41,7 +40,6 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     error Table__NoBalanceAvailable();
     error Table__NotBetStatus();
     error Table__NotCurrentSeat();
-    error Table__NotInactiveStatus();
     error Table__NotManager();
     error Table__NotPlayerTurnStatus();
     error Table__CashOutTransferFailed();
@@ -100,7 +98,6 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     DrawRequest internal s_drawRequest;
     mapping(uint8 => uint8) internal s_cardToDrawCount;
     uint16 internal s_totalCardsDrawn;
-    bool internal s_continuousPlay;
 
     event BetPlaced(address indexed player, uint256 indexed amount);
     event BetsStarted();
@@ -144,23 +141,9 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         _;
     }
 
-    modifier whenInactive {
-        if (s_gameStatus != GameStatus.Inactive) {
-            revert Table__NotInactiveStatus();
-        }
-        _;
-    }
-
     modifier whenBet {
         if (s_gameStatus != GameStatus.Bet) {
             revert Table__NotBetStatus();
-        }
-        _;
-    }
-
-    modifier whenInactiveOrBet {
-        if (s_gameStatus != GameStatus.Bet && s_gameStatus != GameStatus.Inactive) {
-            revert Table__NotInactiveOrBetStatus();
         }
         _;
     }
@@ -282,7 +265,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         return seats;
     }
 
-    function setSeatCount(uint8 _seatCount) external onlyManager whenInactive whenEmpty whenUnlocked {
+    function setSeatCount(uint8 _seatCount) external onlyManager whenEmpty {
         if (_seatCount < 1 || _seatCount > 7) {
             revert Table__InvalidSeatCount();
         }
@@ -290,17 +273,12 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_seatCount = _seatCount;
     }
     
-    function setBetRange(BetRange memory _betRange) external onlyManager whenInactive whenUnlocked {
+    function setBetRange(BetRange memory _betRange) external onlyManager whenEmpty {
         s_betRange = _betRange;
     }
 
-    function setToken(address _token) external onlyManager whenInactive whenUnlocked whenEmpty {
+    function setToken(address _token) external onlyManager whenEmpty {
         s_token = _token;
-    }
-
-    function startBets() external onlyManager whenInactive setInteraction whenUnlocked {
-        s_gameStatus = GameStatus.Bet;
-        emit BetsStarted();
     }
 
     function sit(uint8 _index) external whenUnlocked {
@@ -332,7 +310,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     // TODO: Accept multiple indices (allows leaving table entirely in one transaction)
-    function leave(uint8 _index) external whenInactiveOrBet whenUnlocked {
+    function leave(uint8 _index) external whenBet whenUnlocked {
         SeatInfo storage seatInfo = s_seats[_index].info;
 
         if (seatInfo.player != msg.sender) {
@@ -498,7 +476,8 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function requestHit() external onlyCurrentSeat whenUnlocked setInteraction {
-        draw(DrawRequest.Hit, 1);
+        bool isLastPlayer = s_currentActiveSeatIndex == s_activeSeats.length - 1; 
+        draw(DrawRequest.Hit, isLastPlayer ? 20 : 1);
     }
 
     function stand() external onlyCurrentSeat whenUnlocked setInteraction {
@@ -600,7 +579,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
             }
 
             if (dealerTurn) {            
-                dealerPlay();
+                startDealerTurn(true);
             } else {
                 s_currentActiveSeatIndex += uint8(seatsToSkip);
                 s_currentSeatNumber = s_activeSeats[s_currentActiveSeatIndex];
@@ -623,7 +602,22 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
             }
         }
 
+        Hand memory hand;
+        s_dealerHand = hand;
+        
         draw(DrawRequest.Start, numWords);
+    }
+
+    function startDealerTurn(bool _requestHand) internal {
+        s_gameStatus = GameStatus.DealerTurn;
+        s_currentSeatNumber = 0;
+        s_currentActiveSeatIndex = 0;
+
+        if (_requestHand) {
+            draw(DrawRequest.Dealer, 20);
+        } else {
+            dealerPlay();
+        }
     }
 
     function shouldResetDecks() internal view returns(bool) {
@@ -729,7 +723,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
             s_gameStatus = GameStatus.Insurance;
         } else {
             s_gameStatus = GameStatus.PlayerTurn;
-            nextTurn();
+            nextTurn(false);
         }
 
         emit GameStarted();
@@ -789,13 +783,13 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         hands[_index].status = _status;
 
         if (_index == hands.length - 1) {
-            nextTurn();
+            nextTurn(_status == HandStatus.Bust);
         }
     }
 
-    function nextTurn() internal {
+    function nextTurn(bool _bust) internal {
         if (s_currentActiveSeatIndex == s_activeSeats.length - 1) {
-            dealerPlay();
+            startDealerTurn(!_bust);
             return;
         }
 
@@ -804,10 +798,6 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     function dealerPlay() internal {
-        s_gameStatus = GameStatus.DealerTurn;
-        s_currentSeatNumber = 0;
-        s_currentActiveSeatIndex = 0;
-
         addCardToHand(s_dealerHand);
         uint256 dealerHandValue = getHandValue(s_dealerHand);
 
@@ -819,10 +809,6 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         if (dealerHandValue > 21) {
             s_dealerHand.status = HandStatus.Bust;
         }
-    }
-
-    function finishGame() external {
-        uint256 dealerHandValue = getHandValue(s_dealerHand);
 
         int256 earnings;
 
@@ -858,7 +844,6 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
             }
 
             seat.info.bet = 0;
-            delete seat.hands;
         }
 
         uint256 ethEarnings;
@@ -876,9 +861,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         IPit(owner()).gameEnded{value: ethEarnings}(s_token, earnings, s_gameMaxPayout);
         s_gameMaxPayout = 0;
-
-        bool skipInactive = s_continuousPlay && s_lockTimestamp == 0;
-        s_gameStatus = skipInactive ? GameStatus.Bet : GameStatus.Inactive;
+        s_gameStatus = GameStatus.Bet;
     }
 
     function getMaxPayout(uint256 _bet) internal view returns (uint256) {
