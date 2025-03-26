@@ -86,7 +86,20 @@ contract DealerPlay is Script {
     function run() external {
         vm.startBroadcast();
         Table table = Table(0xf69524c3f0a5234bD78c3cC3e75724eaA1D8e87E);
-        table.dealerPlay();
+        // table.dealerPlay();
+        vm.stopBroadcast();
+    }
+}
+
+contract FulfillRandomWords is Script {
+    function run() external {
+        vm.startBroadcast();
+        Table table = Table(0xbf135B5D18A5cb014fbd28109C48C4a265668578);
+        uint256[] memory words = new uint256[](15);
+        for (uint256 i = 1; i < 13; i++) {
+            words[i] = i;
+        }
+        table.fulfillRandomWords(words);
         vm.stopBroadcast();
     }
 }

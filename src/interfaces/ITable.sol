@@ -28,7 +28,6 @@ interface ITable {
     struct SeatInfo {
       address player;
       uint256 bet;
-      bool waiting;
     }
 
     // @notice Determines the hand values for which the bet can be doubled

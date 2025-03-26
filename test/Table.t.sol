@@ -351,12 +351,12 @@ contract TableTest is Test {
         fullSetup();
         table.sit(3);
         table.sit(5);
-        table.setCurrentSeatIndex(6);
+        table.setCurrentSeatNumber(6);
 
         table.callNextTurn();
 
         console.logString("CURRENT SEAT AFTER");
-        console.logUint(table.getCurrentSeatIndex());
+        console.logUint(table.getCurrentSeatNumber());
     }
 
     function test_tableHit() public {
@@ -375,7 +375,7 @@ contract TableTest is Test {
         console.logUint(table.getRandomWords().length);
 
         console.logString("Seat Index Before hit");
-        console.logUint(table.getCurrentSeatIndex());
+        console.logUint(table.getCurrentSeatNumber());
         console.logString("Hand status Before hit");
         Table.Hand memory handBefore = table.getSeats()[1].hands[0];
         console.log("Hand status before: %i", uint256(handBefore.status));
@@ -386,7 +386,7 @@ contract TableTest is Test {
         console.logString("Min value after");
         console.logUint(handAfter.minValue);
         console.logString("Seat Index after hit");
-        console.logUint(table.getCurrentSeatIndex()); 
+        console.logUint(table.getCurrentSeatNumber()); 
         console.log("Hand status after: %i", uint256(handAfter.status));    
     }
 
@@ -410,5 +410,18 @@ contract TableTest is Test {
         table.callDealerPlay();
         table.getSeats();
         table.getDealerHand();
+    }
+
+    function test_tableLeave() public {
+        fullSetup();
+        table.sit(1);
+        table.sit(2);
+        table.sit(3);
+        table.sit(4);
+        table.sit(5);
+        table.sit(6);
+        table.sit(7);
+
+        table.leave(7);
     }
 }

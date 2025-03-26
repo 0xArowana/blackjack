@@ -50,8 +50,8 @@ contract TableHarness is Table {
         s_betTotal = _betTotal;
     }
 
-    function setCurrentSeatIndex(uint8 _index) external {
-        s_currentSeatIndex = _index;
+    function setCurrentSeatNumber(uint8 _number) external {
+        s_currentSeatNumber = _number;
     }
 
     function setDrawRequest(DrawRequest _drawRequest) external {
