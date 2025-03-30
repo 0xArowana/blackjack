@@ -116,135 +116,135 @@ contract TableTest is Test {
         table.initialize(address(0), 0, betRange, rules, address(0));
     }
 
-    // cashOut
-    function test_cashOut_RevertsIfNoBalance() public {
-        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("Table__NoBalanceAvailable()"))));
-        table.cashOut();
-    }
+    // // Withdraw
+    // function test_cashOut_RevertsIfNoBalance() public {
+    //     vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("Table__NoBalanceAvailable()"))));
+    //     table.cashOut();
+    // }
 
-    function test_cashOut_TransfersTokensIfERC20() public {
-        address player = vm.randomAddress();
-        uint256 amount = vm.randomUint();
-        table.setBalance(player, amount);
+    // function test_cashOut_TransfersTokensIfERC20() public {
+    //     address player = vm.randomAddress();
+    //     uint256 amount = vm.randomUint();
+    //     table.setBalance(player, amount);
 
-        ERC20Mock token = new ERC20Mock();
-        table.setTestToken(address(token));
+    //     ERC20Mock token = new ERC20Mock();
+    //     table.setTestToken(address(token));
 
-        vm.expectCall(address(token), abi.encodeCall(ERC20Mock(token).transfer, (player, amount)));
+    //     vm.expectCall(address(token), abi.encodeCall(ERC20Mock(token).transfer, (player, amount)));
 
-        vm.prank(player);
-        table.cashOut();
-    }
+    //     vm.prank(player);
+    //     table.cashOut();
+    // }
 
-    function test_cashOut_RevertsOnERC20TransferFailure() public {
-        address player = vm.randomAddress();
-        uint256 amount = vm.randomUint();
-        table.setBalance(player, amount);
+    // function test_cashOut_RevertsOnERC20TransferFailure() public {
+    //     address player = vm.randomAddress();
+    //     uint256 amount = vm.randomUint();
+    //     table.setBalance(player, amount);
 
-        ERC20Mock token = new ERC20Mock();
-        table.setTestToken(address(token));
+    //     ERC20Mock token = new ERC20Mock();
+    //     table.setTestToken(address(token));
 
-        vm.mockCall(
-            address(token),
-            abi.encodeWithSelector(token.transfer.selector),
-            abi.encode(false)
-        );
+    //     vm.mockCall(
+    //         address(token),
+    //         abi.encodeWithSelector(token.transfer.selector),
+    //         abi.encode(false)
+    //     );
 
-        vm.prank(player);
-        vm.expectRevert(bytes4(keccak256("Table__CashOutTransferFailed()")));
-        table.cashOut();
-    }
+    //     vm.prank(player);
+    //     vm.expectRevert(bytes4(keccak256("Table__CashOutTransferFailed()")));
+    //     table.cashOut();
+    // }
 
-    function test_cashOut_TransfersETHIfNotERC20() public {
-        address player = vm.randomAddress();
-        uint256 amount = vm.randomUint();
-        table.setBalance(player, amount);
+    // function test_cashOut_TransfersETHIfNotERC20() public {
+    //     address player = vm.randomAddress();
+    //     uint256 amount = vm.randomUint();
+    //     table.setBalance(player, amount);
 
-        vm.deal(address(table), amount);
-        vm.prank(player);
-        table.cashOut();
+    //     vm.deal(address(table), amount);
+    //     vm.prank(player);
+    //     table.cashOut();
 
-        assertEq(player.balance, amount);
-    }
+    //     assertEq(player.balance, amount);
+    // }
 
-    function test_cashOut_RevertsOnETHTransferFailure() public {
-        address player = vm.randomAddress();
-        uint256 amount = vm.randomUint();
-        table.setBalance(player, amount);
+    // function test_cashOut_RevertsOnETHTransferFailure() public {
+    //     address player = vm.randomAddress();
+    //     uint256 amount = vm.randomUint();
+    //     table.setBalance(player, amount);
 
-        vm.prank(player);
-        vm.expectRevert(bytes4(keccak256("Table__CashOutTransferFailed()")));
-        table.cashOut();
-    }
+    //     vm.prank(player);
+    //     vm.expectRevert(bytes4(keccak256("Table__CashOutTransferFailed()")));
+    //     table.cashOut();
+    // }
 
-    function test_cashOut_RevertsOnReentrancy() public {
-        address player = vm.randomAddress();
-        uint256 amount = vm.randomUint();
-        table.setBalance(player, amount);
+    // function test_cashOut_RevertsOnReentrancy() public {
+    //     address player = vm.randomAddress();
+    //     uint256 amount = vm.randomUint();
+    //     table.setBalance(player, amount);
 
-        ERC20Mock token = new ERC20Mock();
-        table.setTestToken(address(token));
+    //     ERC20Mock token = new ERC20Mock();
+    //     table.setTestToken(address(token));
 
-        token.setReenterCashOut(true);
+    //     token.setReenterCashOut(true);
 
-        vm.prank(player);
-        vm.expectRevert(bytes4(keccak256("ReentrancyGuardReentrantCall()")));
-        table.cashOut();
-    }
+    //     vm.prank(player);
+    //     vm.expectRevert(bytes4(keccak256("ReentrancyGuardReentrantCall()")));
+    //     table.cashOut();
+    // }
 
-    // finalizeBets
-    function test_finalizeBets_AllocatesFunds() public {
-        (ITable.Rules memory rules, address token,) = fullSetup();
+    // // finalizeBets
+    // function test_finalizeBets_AllocatesFunds() public {
+    //     (ITable.Rules memory rules, address token,) = fullSetup();
 
-        table.setBetTotal(789);
+    //     table.setBetTotal(789);
         
-        rules.maxResplitHands = 3;
-        table.setRules(rules);
+    //     rules.maxResplitHands = 3;
+    //     table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (4734, token)));
-        table.callFinalizeBets();
+    //     vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (4734, token)));
+    //     table.callFinalizeBets();
 
-        rules.sixToFive = true;
-        table.setRules(rules);
+    //     rules.sixToFive = true;
+    //     table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (8522, token)));
-        table.callFinalizeBets();
+    //     vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (8522, token)));
+    //     table.callFinalizeBets();
 
-        rules.allowDoubleAfterSplit = true;
-        table.setRules(rules);
+    //     rules.allowDoubleAfterSplit = true;
+    //     table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (14203, token)));
-        table.callFinalizeBets();
+    //     vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (14203, token)));
+    //     table.callFinalizeBets();
 
-        rules.maxResplitHands = 4;
-        rules.sixToFive = false;
-        table.setRules(rules);
+    //     rules.maxResplitHands = 4;
+    //     rules.sixToFive = false;
+    //     table.setRules(rules);
 
-        vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (23671, token)));
-        table.callFinalizeBets();
-    }
+    //     vm.expectCall(address(pit), abi.encodeCall(pit.allocate, (23671, token)));
+    //     table.callFinalizeBets();
+    // }
 
-    function test_finalizeBets_LocksIfInsufficientBalance() public {
-        fullSetup();
+    // function test_finalizeBets_LocksIfInsufficientBalance() public {
+    //     fullSetup();
 
-        table.setBetTotal(100);  
+    //     table.setBetTotal(100);  
 
-        table.callFinalizeBets();
-        assertEq(table.s_lockTimestamp(), block.timestamp);
-        assertEq(uint(table.getGameStatus()), 0);
-    }
+    //     table.callFinalizeBets();
+    //     assertEq(table.s_lockTimestamp(), block.timestamp);
+    //     assertEq(uint(table.getGameStatus()), 0);
+    // }
 
-    function test_finalizeBets_StartsGameIfSufficientBalance() public {
-        (, address token, address manager) = fullSetup();
+    // function test_finalizeBets_StartsGameIfSufficientBalance() public {
+    //     (, address token, address manager) = fullSetup();
 
-        Pit.TokenState memory state;
-        state.balance = 500;
-        pit.setManagerToTokenToState(manager, token, state);   
+    //     Pit.TokenState memory state;
+    //     state.balance = 500;
+    //     pit.setManagerToTokenToState(manager, token, state);   
 
-        table.callFinalizeBets();
-        assertEq(table.s_lockTimestamp(), 0);
-        assertEq(uint(table.getGameStatus()), uint(ITable.GameStatus.PlayerTurn));
-    }
+    //     table.callFinalizeBets();
+    //     assertEq(table.s_lockTimestamp(), 0);
+    //     assertEq(uint(table.getGameStatus()), uint(ITable.GameStatus.PlayerTurn));
+    // }
 
     function test_sit() public {
         fullSetup();
@@ -316,17 +316,17 @@ contract TableTest is Test {
         console.logUint(uint8(randomWord3 % totalCards));
     }
 
-    function test_tableNextTurn() public {
-        fullSetup();
-        table.sit(3);
-        table.sit(5);
-        table.setCurrentSeatNumber(6);
+    // function test_tableNextTurn() public {
+    //     fullSetup();
+    //     table.sit(3);
+    //     table.sit(5);
+    //     table.setCurrentSeatNumber(6);
 
-        table.callNextTurn(false);
+    //     table.callNextTurn(false);
 
-        console.logString("CURRENT SEAT AFTER");
-        console.logUint(table.getCurrentSeatNumber());
-    }
+    //     console.logString("CURRENT SEAT AFTER");
+    //     console.logUint(table.getCurrentSeatNumber());
+    // }
 
     function test_tableHit() public {
         fullSetup();

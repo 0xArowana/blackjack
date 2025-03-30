@@ -47,7 +47,6 @@ interface ITable {
     // @notice The status of the current game
     enum GameStatus {
         Bet,
-        Pending,
         Insurance,
         PlayerTurn,
         DealerTurn
@@ -73,11 +72,9 @@ interface ITable {
 
     function getTableInfo() external view returns(TableInfo memory);
 
-    function lock() external;
+    function clearDebt(bool _needsAllocation) external payable;
 
-    function unlock() external;
-
-    function clearDebt() external payable;
+    function allocationCovered() external;
 
     function fulfillRandomWords(uint256[] calldata _randomWords) external;
 

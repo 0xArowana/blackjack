@@ -15,7 +15,6 @@ import {ITable} from "./interfaces/ITable.sol";
 
 contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgradeable, ReentrancyGuard {
     error Pit__CurrencyNotEth();
-    error Pit__InsufficientBalance();
     error Pit__InsufficientManagerBalance();
     error Pit__InvalidEarningsAmountSent();
     error Pit__NotApprovedToken();
@@ -97,19 +96,16 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
     modifier handleDeposit(address _token, uint256 _amount) {
         _;
 
-        TokenState memory state = s_managerToTokenToState[msg.sender][_token];
-        uint256 newBalance = state.balance + _amount;
+        TokenState storage tokenState = s_managerToTokenToState[msg.sender][_token];
+        tokenState.balance += _amount;
 
-        // Unlock locked tables if sufficient balance
-        if (state.balance < state.allocated && newBalance >= state.allocated) {
+        if (tokenState.balance >= tokenState.allocatedTotal) {
             address[] memory tables = s_managerToTables[msg.sender];
 
             for (uint256 i = 0; i < tables.length; i++) {
-                ITable(tables[i]).unlock();
+                ITable(tables[i]).allocationCovered();
             }
         }
-
-        s_managerToTokenToState[msg.sender][_token].balance = newBalance;
     }
 
     constructor() {
@@ -145,46 +141,47 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
         s_timeout = _seconds;
     }
 
-    function allocate(uint256 _amount, address _token) external onlyTable {
+    function allocate(int256 _amount, address _token) external onlyTable {
         address manager = s_tableToManager[msg.sender];
-        s_managerToTokenToState[manager][_token].allocated += _amount;
+        TokenState storage tokenState = s_managerToTokenToState[manager][_token];
+
+        if (_amount < 0) {
+            uint256 absValue = uint256(-_amount);
+            tokenState.allocatedTotal -= absValue;
+        } else {
+            uint256 availableBalance = tokenState.balance - tokenState.allocatedTotal;
+            uint256 amount = uint256(_amount);
+
+            if (amount > availableBalance) {
+                revert Pit__InsufficientManagerBalance();
+            }
+
+            tokenState.allocatedTotal += amount;
+        }
     }
 
-    function gameEnded(address _token, int256 _earnings, uint256 _gameAllocation) external payable onlyTable nonReentrant {
+    function gameEnded(address _token, int256 _earnings) external payable onlyTable nonReentrant {
         if (_token != address(0) && msg.value > 0) {
             revert Pit__CurrencyNotEth();
         }
 
         address manager = s_tableToManager[msg.sender];
         TokenState storage tokenState = s_managerToTokenToState[manager][_token];
-        tokenState.allocated -= _gameAllocation;
 
         if (_earnings < 0) {
-            uint256 absValue = uint256(-_earnings);
-            tokenState.balance -= absValue;
+            uint256 earningsAbs = uint256(-_earnings);
+            tokenState.balance -= earningsAbs;
+
             uint256 ethAmount;
 
             if (_token == address(0)) {
-                ethAmount = absValue;
+                ethAmount = earningsAbs;
             } else {
-                ERC20(_token).approve(msg.sender, absValue);
+                ERC20(_token).approve(msg.sender, earningsAbs);
             }
 
-            ITable(msg.sender).clearDebt{value: ethAmount}();
-
-            // Lock tables if token balance less than allocated
-            // NOTE: This should never happen - test this invariant
-            if (tokenState.balance < tokenState.allocated) {
-                address[] memory tables = s_managerToTables[msg.sender];
-
-                for (uint256 i = 0; i < tables.length; i++) {
-                    ITable table = ITable(tables[i]);
-                    
-                    if (table.getToken() == _token) {
-                        table.lock();
-                    }
-                }
-            }
+            bool needsAllocation = tokenState.balance < tokenState.allocatedTotal;
+            ITable(msg.sender).clearDebt{value: ethAmount}(needsAllocation);
         } else if (_earnings > 0) {
             uint256 earnings = uint256(_earnings);
 
@@ -200,7 +197,7 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
                 }
             }
 
-            s_managerToTokenToState[manager][_token].balance += earnings;
+            tokenState.balance += earnings;
         }
     }
 

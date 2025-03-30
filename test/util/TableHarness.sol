@@ -46,20 +46,12 @@ contract TableHarness is Table {
         s_rules = _rules;
     }
 
-    function setBetTotal(uint256 _betTotal) external {
-        s_betTotal = _betTotal;
-    }
-
     function setCurrentSeatNumber(uint8 _number) external {
         s_currentSeatNumber = _number;
     }
 
     function setDrawRequest(DrawRequest _drawRequest) external {
         s_drawRequest = _drawRequest;
-    }
-
-    function callFinalizeBets() external {
-        finalizeBets();
     }
 
     function getRandomWords() external view returns (uint256[] memory) {
@@ -84,10 +76,6 @@ contract TableHarness is Table {
 
     function callInitialDeal() external {
         initialDeal();
-    }
-
-    function callNextTurn(bool _bust) external {
-        nextTurn(_bust);
     }
 
     function callHit() external {

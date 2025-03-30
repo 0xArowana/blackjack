@@ -11,22 +11,20 @@ interface IPit {
 
   struct TokenState {
     uint256 balance;
-    uint256 allocated;
+    uint256 allocatedTotal;
   }
 
   function getTimeout() external view returns (uint256);
 
   function getPlayerTable(address _player) external view returns (address);
 
-  function getManagerTokenState(address _manager, address _token) external view returns (TokenState memory);
-
-  function allocate(uint256 _amount, address _token) external;
+  function allocate(int256 _amount, address _token) external;
 
   function playerSeated(address _player) external;
 
   function playerLeft(address _player) external;
 
-  function gameEnded(address _token, int256 _earnings, uint256 _gameAllocation) external payable;
+  function gameEnded(address _token, int256 _earnings) external payable;
 
   function requestRandomWords(uint32 _numWords) external;
 }
