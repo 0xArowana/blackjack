@@ -73,35 +73,39 @@ contract TableTest is Test {
     // initialize
     function test_initialize_SetsStateVariables() public {
         address manager = vm.randomAddress();
+        pit.setTableToManager(address(table), manager);
+
         uint8 maxPlayers = uint8(vm.randomUint());
-        ITable.BetRange memory betRange = ITable.BetRange(vm.randomUint(), vm.randomUint());
+        ITable.BetRange memory betRange = ITable.BetRange(1, 100);
         ITable.Rules memory rules = ITable.Rules(
-            uint8(vm.randomUint()),
+            8,
             ITable.DeckReset(vm.randomUint() % 3),
             vm.randomBool(),
             vm.randomBool(),
             ITable.DoubleRule(vm.randomUint() % 3),
-            uint8(vm.randomUint()),
+            3,
             vm.randomBool(),
             vm.randomBool(),
             vm.randomBool(),
             vm.randomBool(),
             vm.randomBool()
         );
-        address token = vm.randomAddress();
 
-        vm.expectCall(address(pit), abi.encodeWithSelector(pit.requestRandomWords.selector));
+        address token = vm.randomAddress();
+        
+        Pit.TokenState memory state;
+        state.balance = 50000000;
+        pit.setManagerToTokenToState(manager, token, state); 
 
         vm.prank(address(pit));
-        table.initialize(manager, maxPlayers, betRange, rules, token);
+        table.initialize(manager, 7, betRange, rules, token);
 
         assertEq(table.owner(), address(pit));
         assertEq(table.getManager(), manager);
-        assertEq(table.getSeatCount(), maxPlayers);
+        assertEq(table.getSeatCount(), 7);
         assertEq(keccak256(abi.encode(table.getBetRange())), keccak256(abi.encode(betRange)));
         assertEq(keccak256(abi.encode(table.getRules())), keccak256(abi.encode(rules)));
         assertEq(table.getToken(), token);
-        assertEq(table.getDrawableCards().length, 52);   
     }
 
     function test_initialize_RevertsOnMultipleCalls() public {

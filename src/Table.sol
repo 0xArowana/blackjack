@@ -80,10 +80,9 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     mapping (uint8 => Seat) internal s_seats;
     uint8[] internal s_activeSeats;
     mapping(address => uint256) public s_playerToBalance;
-    uint256 public s_lockTimestamp;
+    Lock public s_lock;
     uint256 internal s_lastInteraction;
     uint256 internal s_minAllocation;
-    bool internal s_needsAllocation;
     GameStatus public s_gameStatus;
     Hand internal s_dealerHand;
     uint8 internal s_currentSeatNumber;
@@ -103,7 +102,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     event GameStarted();
     event PlayerSeated(address indexed player, uint8 indexed seat);
     event PlayerLeft(address indexed player, uint8 indexed seat);
-    event TableLocked();
+    event TableLocked(LockReason indexed reason);
 
     modifier onlyManager {
         if (msg.sender != address(s_manager)) {
@@ -142,7 +141,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     }
 
     modifier whenUnlocked {
-        if (s_lockTimestamp != 0) {
+        if (s_lock.timestamp != 0) {
            revert Table__Locked();
         }
         _;
@@ -232,7 +231,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
             s_seatCount,
             s_betRange,
             s_rules,
-            s_lockTimestamp
+            s_lock
         );
 
         return tableInfo;
@@ -483,9 +482,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         s_debt = 0;
 
         if (_needsAllocation) {
-            s_needsAllocation = true;
-        } else {
-            s_lockTimestamp = 0;
+            s_lock = Lock(block.timestamp, LockReason.Underfunded);
         }
     }
 
@@ -515,7 +512,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     function fulfillRandomWords(uint256[] calldata _randomWords) external onlyOwner setInteraction {
         emit RandomWordsFulfilled(s_drawRequest, _randomWords);
         s_randomWords = _randomWords;
-        s_lockTimestamp = 0;
+        delete s_lock;
 
         if (s_drawRequest == DrawRequest.Start) {
             initialDeal();
@@ -531,22 +528,19 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         delete s_randomWords;
     }
 
-    function lock() external onlyOwner {
-        s_lockTimestamp = block.timestamp;
-        emit TableLocked();
+    function lock(LockReason _reason) internal onlyOwner {
+        s_lock = Lock(block.timestamp, _reason);
+        emit TableLocked(_reason);
     }
 
     function unlock() external onlyOwner {
-        s_lockTimestamp = 0;
+        delete s_lock;
     }
 
     function allocationCovered() external onlyOwner {
-        if (!s_needsAllocation) {
-            return;
+        if (s_lock.reason == LockReason.Underfunded) {
+            delete s_lock;
         }
-
-        s_needsAllocation = false;
-        s_lockTimestamp = 0;
     }
 
     function updateCurrentSeat() public {
@@ -596,8 +590,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
             }
         }
 
-        Hand memory hand;
-        s_dealerHand = hand;
+        delete s_dealerHand;
 
         draw(DrawRequest.Start, numWords);
     }
@@ -649,7 +642,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
             return;
         }
 
-        int256 delta = int256(s_minAllocation) - int256(maxPayout);        
+        int256 delta = int256(maxPayout) - int256(s_minAllocation);        
         IPit(owner()).allocate(delta, s_token);
 
         s_minAllocation = maxPayout;
@@ -669,7 +662,7 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
     
     function draw(DrawRequest _drawRequest, uint32 _numWords) internal {
         s_drawRequest = _drawRequest;
-        s_lockTimestamp = block.timestamp;
+        s_lock = Lock(block.timestamp, LockReason.Draw);
         IPit(owner()).requestRandomWords(_numWords);
     }
 
@@ -734,8 +727,8 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
         addCardToHand(hand1);
         hand1.minValue -= cardValue;
 
-        Hand memory newHand;
         Hand[] storage hands = s_seats[s_currentSeatNumber].hands;
+        Hand memory newHand;
         hands.push(newHand);
 
         Hand storage hand2 = hands[hands.length - 1];
@@ -841,7 +834,6 @@ contract Table is ITable, Initializable, OwnableUpgradeable, ReentrancyGuard {
 
         if (earnings < 0) {
             s_debt = uint256(-earnings);
-            s_lockTimestamp = block.timestamp; // Lock will be removed when Pit calls clearDebt
         } else if (earnings > 0) {
             if (s_token == address(0)) {
                 ethEarnings = uint256(earnings);

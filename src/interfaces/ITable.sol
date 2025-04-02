@@ -30,6 +30,11 @@ interface ITable {
       uint256 bet;
     }
 
+    struct Lock {
+      uint256 timestamp;
+      LockReason reason;
+    }
+
     // @notice Determines the hand values for which the bet can be doubled
     enum DoubleRule {
       Any,
@@ -52,6 +57,12 @@ interface ITable {
         DealerTurn
     }
 
+    enum LockReason {
+      None,
+      Draw,
+      Underfunded
+    }
+
     struct TableInfo {
       address id;
       address manager;
@@ -61,7 +72,7 @@ interface ITable {
       uint8 seatCount;
       BetRange betRange;
       Rules rules;
-      uint256 lockTimestamp;
+      Lock lock;
     }
 
     function initialize(address _manager, uint8 _seatCount, BetRange memory _betRange, Rules memory _rules, address _token) external;

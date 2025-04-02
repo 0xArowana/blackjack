@@ -147,7 +147,12 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
 
         if (_amount < 0) {
             uint256 absValue = uint256(-_amount);
-            tokenState.allocatedTotal -= absValue;
+
+            if (absValue > tokenState.allocatedTotal) {
+                tokenState.allocatedTotal = 0;
+            } else {
+                tokenState.allocatedTotal -= absValue;
+            }
         } else {
             uint256 availableBalance = tokenState.balance - tokenState.allocatedTotal;
             uint256 amount = uint256(_amount);
@@ -252,7 +257,7 @@ contract Pit is IPit, Initializable, UUPSUpgradeable, VRFConsumerBaseV2PlusUpgra
         ITable.BetRange memory _betRange,
         ITable.Rules memory _rules,
         address _token
-    ) external approveToken(_token, true) {        
+    ) external approveToken(_token, true) {
         address table = Clones.clone(s_tableImplementation);
         s_tableToManager[table] = msg.sender;
         s_managerToTables[msg.sender].push(table);

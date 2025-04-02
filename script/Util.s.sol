@@ -18,22 +18,22 @@ contract SetTokens is Script {
     }
 }
 
-contract GetLockTimestamp is Script {
-    function run() external returns(uint256) {
+contract GetLock is Script {
+    function run() external returns(ITable.Lock memory) {
         vm.startBroadcast();
         Table table = Table(0x974D22e8363325e1d20F92c3F2B723B440248582);
-        uint256 timestamp = table.s_lockTimestamp();
+        ITable.TableInfo memory info = table.getTableInfo();
         vm.stopBroadcast();
-        return timestamp;
+        return info.lock;
     }
 }
 
 contract CreateTable is Script {
     function run() external {
         vm.startBroadcast();
-        Pit pit = Pit(payable(0x380c1Cb55B59e86884719ee2f6bFbC15D7Ede669));
+        Pit pit = Pit(payable(0x12B17178B7B12b2e188bAA6A1543e1DDdCcA8560));
         pit.createTable(
-            3, 
+            4, 
             ITable.BetRange(1,100), 
             ITable.Rules(
                 2, // deckCount
